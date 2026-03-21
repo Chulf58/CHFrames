@@ -253,7 +253,7 @@ function CHDPadParty.BuildUnitFrame(unit)
     for i = 1, 3 do
         local icon = CreateFrame("Frame", nil, f, "BackdropTemplate")
         icon:SetSize(16, 16)
-        icon:SetPoint("TOPLEFT", f, "TOPLEFT", 4 + (i - 1) * 18, -46)
+        icon:SetPoint("TOPLEFT", f, "TOPLEFT", 4 + (i - 1) * 18, -54)
         icon:SetBackdrop({ bgFile = "Interface\\Tooltips\\UI-Tooltip-Background" })
         icon:SetBackdropColor(0, 0, 0, 0.8)
         local tex = icon:CreateTexture(nil, "ARTWORK")
@@ -290,7 +290,7 @@ function CHDPadParty.BuildUnitFrame(unit)
     for i = 1, 3 do
         local icon = CreateFrame("Frame", nil, f, "BackdropTemplate")
         icon:SetSize(16, 16)
-        icon:SetPoint("TOPRIGHT", f, "TOPRIGHT", -(4 + (i - 1) * 18), -46)
+        icon:SetPoint("TOPRIGHT", f, "TOPRIGHT", -(4 + (i - 1) * 18), -54)
         icon:SetBackdrop({ bgFile = "Interface\\Tooltips\\UI-Tooltip-Background" })
         icon:SetBackdropColor(0.4, 0, 0, 0.8)   -- reddish bg for debuffs
         local tex = icon:CreateTexture(nil, "ARTWORK")
@@ -321,12 +321,12 @@ function CHDPadParty.BuildUnitFrame(unit)
         f.debuffIcons[i] = icon
     end
 
-    -- Power / resource bar (6px, below the single aura row at y=-64)
+    -- Power / resource bar (6px, directly below health bar at y=-46)
     -- G-057: SetMinMaxValues before SetValue.
     -- Color and value set by UpdatePower on UNIT_POWER_UPDATE / UNIT_DISPLAYPOWER.
     local powerBar = CreateFrame("StatusBar", nil, f)
-    powerBar:SetPoint("TOPLEFT",  f, "TOPLEFT",   4, -64)
-    powerBar:SetPoint("TOPRIGHT", f, "TOPRIGHT", -4, -64)
+    powerBar:SetPoint("TOPLEFT",  f, "TOPLEFT",   4, -46)
+    powerBar:SetPoint("TOPRIGHT", f, "TOPRIGHT", -4, -46)
     powerBar:SetHeight(6)
     powerBar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
     powerBar:SetStatusBarColor(0.2, 0.5, 1.0, 1)  -- default: mana blue

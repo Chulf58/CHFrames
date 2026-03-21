@@ -181,31 +181,14 @@
   - Player class detected once via `UnitClassBase("player")` or `select(2, UnitClass("player"))`
   - Only show the indicator when the player is in a group (not solo) and the buff is castable at range
 
-- [ ] **Range indicator — grey out at >40 yards** *(blocked by WoW 12.0 API restrictions)*
-  - All three candidate APIs are broken for non-targeted party unit tokens in WoW 12.0:
-    - `UnitInRange("party1")` → secret boolean (always evaluates false in Lua)
-    - `CheckInteractDistance("party1", 4)` → unreliable/false even when adjacent
-    - `C_Spell.IsSpellInRange(spellID, "party1")` → nil unless unit is current target/focus
-  - Blizzard intentionally restricted range APIs to prevent exploit detection by addons
-  - Only possible workaround: check range when a unit IS the current target/focus, but that
-    covers at most 1 party member at a time — not useful for a party frame addon
-  - Framework in place (`_oorAlpha`, `ApplyCombinedAlpha`) for when a solution appears
-  - Grey out the entire unit frame when the party member is more than 40 yards away
-  - 40 yards = standard maximum healing range (Flash Heal, Chain Heal, Healing Touch, etc.)
-  - Fixed range, not class-specific — keeps it simple and consistent for all users
-  - Visual: desaturate + dim the frame (`f:SetAlpha(0.4)` when OOR, `f:SetAlpha(1.0)` in range)
-  - Implementation: use a known 40-yard spell to probe range via `C_Spell.IsSpellInRange(spellID, unit)`
-    - Spell ID 139 = Renew (Priest, 40 yards) — available to all as a reference probe
-    - Spell ID 774 = Rejuvenation (Druid, 40 yards) — alternative
-    - Pick whichever the player has learned; fall back to `CheckInteractDistance(unit, 4)` (28yd)
-      or `UnitInRange(unit)` (40yd) as a last resort
-    - `UnitInRange(unit)` returns a secret boolean in WoW 12.0 — must guard with `issecretvalue(result)`
-      before using it; if tainted, fall back to CheckInteractDistance or assume in-range
-  - Poll every 0.5s via a repeating `C_Timer.NewTicker(0.5, callback)` — no WoW event fires
-    reliably for range changes
-  - Player frame: always considered in range (skip check entirely)
-  - Combine with health fade alpha when both are implemented: `finalAlpha = baseAlpha * oorAlpha`
-    so they stack rather than overwrite each other
+- [x] **Range indicator — grey out at >40 yards**
+  - Uses `C_Spell.IsSpellInRange` with a spec/class-specific friendly spell (DandersFrames/Grid2 pattern)
+  - Spell validated with `IsPlayerSpell()` before use; result compared with `== true` / `== false` (plain booleans)
+  - `CheckInteractDistance(unit, 4)` (~28yd) as OOC fallback when spell returns false
+  - In combat with no result: assume in-range (no reliable fallback mid-combat)
+  - Classes with no friendly spell (DK/DH/Hunter/Warrior/Rogue): interact distance OOC, assume in-range in combat
+  - `PLAYER_TALENT_UPDATE` re-detects the range spell on spec change
+  - Polls every 0.1s (matches action bar responsiveness)
 
 - [x] **Resource / mana bar** — small bar showing mana, rage, energy, focus
   - `UnitPower(unit)` + `UnitPowerMax(unit)` (secret numbers — pass to SetValue/SetMinMaxValues directly)
@@ -258,11 +241,9 @@
   - HP text FontString should be at a high frame level (above absorb bar overlay)
   - Format: `"74%"` normally, `"74% +13%"` (yellow +13%) when absorbs present
 
-- [ ] **Resource bar layout** — move power bar to directly below the health bar;
-  buff/debuff icons move below the power bar
-  - Currently: health bar → buffs/debuffs → power bar
-  - Desired: health bar → power bar → buffs/debuffs
-  - Frame height will need recalculation
+- [x] **Resource bar layout** — health bar → power bar → buffs/debuffs
+  - Power bar at y=-46 (directly below health bar); buffs/debuffs at y=-54
+  - Frame stays 74px — pixel math worked out exactly
 
 - [ ] **Dispel priority + class-aware filtering**
   - Dispellable debuffs should always show first in the debuff slots (sort by dispellability)
