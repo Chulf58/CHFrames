@@ -138,3 +138,6 @@ The player frame always shows real character data even in test mode. Only party1
 
 **G-075 — Use RegisterStateDriver to hide Blizzard party frames; never call Lua methods on them.**
 `RegisterStateDriver(frame, "visibility", "hide")` routes through Blizzard's secure C-level state driver without tainting our context. Calling `:Hide()`, `:UnregisterAllEvents()`, or any Lua method on `PartyFrame`/`CompactPartyFrame`/`CompactRaidFrameManager` triggers G-CRITICAL taint. Implemented in `CH_DPadParty_HideBlizzard.lua`, triggered on `PLAYER_LOGIN` with a guard flag. KNOWN LIMITATION: `PLAYER_LOGIN` does not re-fire on `/reload`. CompactPartyFrame and CompactRaidFrameManager are excluded until in-game taint testing confirms safety.
+
+**G-076 — Use issecretvalue() to detect non-zero secret numbers; never compare them directly.**
+`UnitGetTotalAbsorbs` returns plain `0` when no shield is active, and a secret number when a shield is present. Comparisons like `absorb ~= 0` on secret numbers return TAINTED booleans — assigning a tainted boolean to a field and using it in a conditional in a different function propagates taint and silently breaks behavior. Use `issecretvalue(absorb)` instead: it returns a plain (non-tainted) boolean indicating whether the value is secret. Pattern: `f._hasAbsorb = type(issecretvalue) == "function" and issecretvalue(absorb)`.

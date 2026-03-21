@@ -867,16 +867,19 @@ function CHDPadParty.UpdateAbsorbs(unit)
             local absorb = UnitGetTotalAbsorbs(unit) or 0
             f.absorbBar:SetMinMaxValues(0, maxHP)
             f.absorbBar:SetValue(absorb)
-            -- Detect presence for hpText "+" suffix.
-            -- UnitGetTotalAbsorbs and UnitHealthMax are BOTH secret numbers in TWW.
-            -- Arithmetic between them always throws — cannot compute a plain percentage.
-            -- We track presence only (boolean). Comparison ~= 0 works on secret numbers;
-            -- pcall guards any edge cases (e.g. nil return on fresh units).
-            local ok, present = pcall(function()
-                local a = UnitGetTotalAbsorbs(unit)
-                return a ~= nil and a ~= 0
-            end)
-            f._hasAbsorb = ok and present == true
+            -- Detect presence for hpText "+" suffix via issecretvalue().
+            -- UnitGetTotalAbsorbs returns plain 0 when no shield is active, and a
+            -- SECRET number when a shield is active. Comparisons on secret numbers
+            -- return TAINTED booleans — assigning/using them propagates taint and
+            -- breaks UpdateFrame. issecretvalue(x) is WoW's provided function that
+            -- returns a plain (non-tainted) bool: true if x is secret, false if plain.
+            -- So issecretvalue(absorb) == true  ↔  shield is present.
+            if type(issecretvalue) == "function" then
+                f._hasAbsorb = issecretvalue(absorb)
+            else
+                -- issecretvalue unavailable (non-TWW build); leave unchanged.
+                f._hasAbsorb = false
+            end
         end
 
         -- Heal absorb (Necrotic M+ affix, Mangle, Plaguebringer, etc.)
