@@ -79,48 +79,52 @@ local RAID_BUFF_BY_CLASS = {
 -- nil = not yet detected; false = player class has no raid buff to give
 local _playerRaidBuff = nil
 
--- Range probe: C_Spell.IsSpellInRange(spellID, unit) returns plain 1/0/nil
--- (no secret values).  We detect which spell the player knows at login by
--- testing against "player" (always in range of yourself → returns 1 if known).
--- nil = not yet detected; false = no usable probe spell found for this class.
-local _rangeProbeSpell = nil
+-- Range check: use C_Spell.IsSpellInRange with a spec-specific friendly spell.
+-- Spell validated with IsPlayerSpell() — reliable unlike probing against "player".
+-- Result is a plain Lua boolean (== true / == false), not a secret value.
+-- Approach mirrors Grid2 / DandersFrames which confirmed this works in WoW 12.0.
+local _rangeFriendlySpell = nil  -- nil = not yet detected
 
--- Ordered by class prevalence.  40-yard spells preferred; 30-yard fallbacks
--- for pure-melee classes that have no long-range ability.
-local RANGE_PROBE_CANDIDATES = {
-    -- Healer 40yd
-    139,    -- Renew            (Priest)
-    2061,   -- Flash Heal       (Priest)
-    774,    -- Rejuvenation     (Druid)
-    8936,   -- Regrowth         (Druid)
-    331,    -- Healing Wave     (Shaman)
-    8004,   -- Healing Surge    (Shaman)
-    116670, -- Vivify           (Monk)
-    19750,  -- Flash of Light   (Paladin)
-    82326,  -- Holy Light       (Paladin)
-    361469, -- Emerald Blossom  (Evoker)
-    -- Ranged DPS 40yd
-    75,     -- Auto Shot        (Hunter)
-    116,    -- Frostbolt        (Mage)
-    133,    -- Fireball         (Mage)
-    686,    -- Shadow Bolt      (Warlock)
-    198,    -- Shoot            (wand, any class, 35yd)
-    -- Melee-class 30yd fallbacks
-    47541,  -- Death Coil       (Death Knight)
-    57755,  -- Heroic Throw     (Warrior)
-    185123, -- Throw Glaive     (Demon Hunter)
-    114014, -- Shuriken Toss    (Rogue)
+-- Friendly spell per spec ID (IsSpellInRange works on friendly targets at ~40yd).
+-- Classes with no friendly spell (DK, DH, Hunter, Warrior, Rogue) fall back to
+-- CheckInteractDistance (~28yd) out of combat, then assume in-range in combat.
+local RANGE_SPELL_BY_SPEC = {
+    [102] = 8936,   [103] = 8936,   [104] = 8936,   [105] = 774,    -- Druid
+    [256] = 17,     [257] = 2061,   [258] = 17,                      -- Priest
+    [62]  = 1459,   [63]  = 1459,   [64]  = 1459,                    -- Mage
+    [268] = 116670, [269] = 116670, [270] = 116670,                  -- Monk
+    [65]  = 19750,  [66]  = 19750,  [70]  = 19750,                   -- Paladin
+    [262] = 8004,   [263] = 8004,   [264] = 8004,                    -- Shaman
+    [265] = 20707,  [266] = 20707,  [267] = 20707,                   -- Warlock
+    [1467]= 355913, [1468]= 355913, [1473]= 355913,                  -- Evoker
 }
 
-local function DetectRangeProbeSpell()
-    _rangeProbeSpell = false  -- assume no probe unless found
-    for _, id in ipairs(RANGE_PROBE_CANDIDATES) do
-        local ok, result = pcall(C_Spell.IsSpellInRange, id, "player")
-        if ok and result ~= nil then   -- non-nil → player knows this spell
-            _rangeProbeSpell = id
-            break
+-- Class-level fallback if spec detection fails
+local RANGE_SPELL_BY_CLASS = {
+    DRUID   = 8936,   PRIEST  = 2061,  MAGE    = 1459,
+    MONK    = 116670, PALADIN = 19750, SHAMAN  = 8004,
+    WARLOCK = 20707,  EVOKER  = 355913,
+}
+
+local function UpdateRangeSpell()
+    _rangeFriendlySpell = nil
+    -- Spec-specific first
+    local specIndex = GetSpecialization and GetSpecialization()
+    if specIndex then
+        local specID = GetSpecializationInfo and GetSpecializationInfo(specIndex)
+        local id = specID and RANGE_SPELL_BY_SPEC[specID]
+        if id and IsPlayerSpell(id) then
+            _rangeFriendlySpell = id
+            return
         end
     end
+    -- Class fallback
+    local _, classFile = UnitClass("player")
+    local id = classFile and RANGE_SPELL_BY_CLASS[classFile]
+    if id and IsPlayerSpell(id) then
+        _rangeFriendlySpell = id
+    end
+    -- DK/DH/Hunter/Warrior/Rogue: _rangeFriendlySpell stays nil → fallback path
 end
 
 -- SetPoint offsets: CENTER of each unit frame relative to root CENTER
@@ -760,16 +764,31 @@ function CHDPadParty.UpdateRange(unit)
         return
     end
 
-    -- G-RANGE-4: Use C_Spell.IsSpellInRange with the cached probe spell.
-    -- Returns plain Lua 1 (in range) / 0 (OOR) / nil (can't determine).
-    -- No secret values.  Default to in-range on any failure or missing probe.
+    -- G-RANGE-4: DandersFrames pattern — C_Spell.IsSpellInRange returns plain
+    -- Lua true/false (not secret booleans).  Compare with == true / == false.
+    -- nil = can't determine (unit not yet loaded) → assume in-range.
+    -- Fallback: CheckInteractDistance(unit,4) ~28yd when spell returns false OOC.
+    -- Combat fallback: if in combat and spell returns false → still assume in-range
+    -- (we cannot reliably check range mid-combat without a spell).
     local inRange = true
-    if _rangeProbeSpell then
-        local ok, result = pcall(C_Spell.IsSpellInRange, _rangeProbeSpell, unit)
-        if ok and result == 0 then
-            inRange = false
+    if _rangeFriendlySpell then
+        local result = C_Spell.IsSpellInRange(_rangeFriendlySpell, unit)
+        if result == true then
+            inRange = true
+        elseif result == false then
+            if not InCombatLockdown() and CheckInteractDistance(unit, 4) then
+                inRange = true
+            else
+                inRange = false
+            end
         end
-        -- result == 1 → in range; nil → indeterminate → assume in-range
+        -- result == nil: indeterminate → leave inRange = true
+    else
+        -- No friendly range spell known (DK/DH/Hunter/Warrior/Rogue)
+        -- Use interact distance OOC only; assume in-range in combat
+        if not InCombatLockdown() then
+            inRange = CheckInteractDistance(unit, 4) and true or false
+        end
     end
 
     f._oorAlpha = inRange and 1.0 or 0.4
@@ -947,6 +966,7 @@ eventFrame:RegisterEvent("UNIT_AURA")
 eventFrame:RegisterEvent("PLAYER_FLAGS_CHANGED")
 eventFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
 eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+eventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")          -- spec/talent changes → re-detect range spell
 eventFrame:RegisterEvent("UNIT_HEAL_PREDICTION")        -- incoming heals changed
 eventFrame:RegisterEvent("UNIT_DISPLAYPOWER")           -- power type changed (druid forms, etc.)
 eventFrame:RegisterEvent("UNIT_ABSORB_AMOUNT_CHANGED")  -- damage absorb shields changed
@@ -1034,9 +1054,9 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
         if CHDPadParty.minimapBtn then
             CHDPadParty.UpdateMinimapButtonPos()
         end
-        -- Detect which spell to use for range probing (class-specific, done once).
-        -- Re-runs on zone transition in case talents changed the spell availability.
-        DetectRangeProbeSpell()
+        -- Detect which spell to use for range probing (class/spec-specific).
+        -- Re-runs on zone transition in case talents changed spell availability.
+        UpdateRangeSpell()
 
         -- G-RANGE-5: range ticker created here, not in Init — unit data unavailable
         -- at ADDON_LOADED time. Guard prevents stacking on every zone transition.
@@ -1109,6 +1129,10 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
         for _, unit in ipairs(UNIT_SLOTS) do
             CHDPadParty.UpdateRaidMarker(unit)
         end
+
+    elseif event == "PLAYER_TALENT_UPDATE" then
+        -- Spec changed mid-session — re-detect which range spell to use
+        UpdateRangeSpell()
     end
 end)
 
