@@ -1061,7 +1061,7 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
         -- G-RANGE-5: range ticker created here, not in Init — unit data unavailable
         -- at ADDON_LOADED time. Guard prevents stacking on every zone transition.
         if not CHDPadParty.rangeTicker then
-            CHDPadParty.rangeTicker = C_Timer.NewTicker(0.5, function()
+            CHDPadParty.rangeTicker = C_Timer.NewTicker(0.1, function()
                 for _, unit in ipairs(UNIT_SLOTS) do
                     CHDPadParty.UpdateRange(unit)
                 end
