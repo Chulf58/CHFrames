@@ -57,7 +57,7 @@ Key references stored on the namespace:
 ```
 UIParent
 ├── CHDPadPartyRoot (16×16 drag anchor, MEDIUM strata)
-│   ├── CHDPadPartyFrame_party1  (200×88, BackdropTemplate)
+│   ├── CHDPadPartyFrame_party1  (200×78, BackdropTemplate)
 │   ├── CHDPadPartyFrame_party2
 │   ├── CHDPadPartyFrame_party3
 │   ├── CHDPadPartyFrame_party4
@@ -69,7 +69,7 @@ UIParent
 Each unit frame contains (top to bottom):
 
 ```
-f (outer frame, 200×88)
+f (outer frame, 200×78)
 ├── healthBar (StatusBar, 40px tall, class-colored)
 │   ├── absorbBar (StatusBar, SetAllPoints(healthBar), white overlay, reverse fill)
 │   ├── healAbsorbBar (StatusBar, SetAllPoints(healthBar), red overlay, reverse fill)
@@ -77,8 +77,8 @@ f (outer frame, 200×88)
 │   ├── hpText (FontString, OVERLAY)
 │   └── roleIcon (Texture, OVERLAY)
 ├── overlay (dead/ghost/offline backdrop, hides when alive)
-├── buffIcons[1..3] (18×18 frames with tex + count)
-└── debuffIcons[1..3] (18×18 frames with tex + count)
+├── buffIcons[1..3] (20×20 frames with tex + count; timer FontString 9pt)
+└── debuffIcons[1..3] (20×20 frames with tex + count; timer FontString 9pt)
 ```
 
 **Frame level rules:**
@@ -96,15 +96,15 @@ f (outer frame, 200×88)
         [player]
 ```
 
-Frame size: 200×88px (44px half-height). Root anchor is 16×16. Offsets from root CENTER with 8px gaps:
+Frame size: 200×78px (39px half-height). Root anchor is 16×16. Offsets from root CENTER with 8px gaps:
 
 | Unit | x | y |
 |---|---|---|
-| party1 | 0 | +96 |
+| party1 | 0 | +86 |
 | party2 | -104 | 0 |
 | party3 | +104 | 0 |
-| party4 | 0 | -96 |
-| player | 0 | -192 |
+| party4 | 0 | -86 |
+| player | 0 | -172 |
 
 ---
 

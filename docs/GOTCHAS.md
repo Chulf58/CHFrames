@@ -83,6 +83,15 @@ Parent `absorbBar` and `healAbsorbBar` to the healthBar StatusBar. Set their fra
 **SetReverseFill(bool) is a valid WoW StatusBar method.**
 `StatusBar:SetReverseFill(true)` has existed since MoP and is valid in retail/TWW. It takes a plain boolean, not a value — no secret number concern.
 
+**CooldownFrame SetAllPoints scales automatically with its parent icon frame.**
+No explicit width/height resize is needed on the CooldownFrame when the parent icon frame is resized — `SetAllPoints` keeps it in sync automatically.
+
+**Frame height changes require recalculating OFFSETS; horizontal offsets are unaffected.**
+OFFSETS encode vertical spacing as `half-height + gap + half-height`. Changing frame height means this value must be recomputed. Horizontal offsets (party2/party3 left/right positions) depend only on frame width, so they are unaffected by height changes.
+
+**OFFSETS is the only place that encodes frame height.**
+No other hardcoded height references exist in the layout code. When resizing frames vertically, OFFSETS is the only constant that needs updating.
+
 ---
 
 ## Unit & Role API
