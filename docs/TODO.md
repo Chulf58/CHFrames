@@ -2,6 +2,87 @@
 
 ## High Priority / Infrastructure
 
+- [ ] **Rename addon from "CH D-Pad Party" to "CHFrames"**
+  - Rename the addon folder: `CH_DPadParty` → `CHFrames`
+  - Update `.toc` file: `## Title:`, `## Interface:`, SavedVariables name (`CHDPadPartyDB` → `CHFramesDB`), and all `## X-*` metadata fields
+  - Rename all `.lua` files: `CH_DPadParty*.lua` → `CHFrames*.lua`
+  - Global namespace: replace `CHDPadParty` → `CHFrames` throughout all Lua files
+  - SavedVariables rename: `CHDPadPartyDB` → `CHFramesDB` (existing saves will be lost unless a migration shim is added)
+  - In-game strings: update slash command (`/chdpad` → `/chframe`), minimap tooltip, settings panel title, and any print messages
+  - GitHub repo rename: `CH_DPadParty` → `CHFrames` (update remote URL in local git config)
+  - Wago project: update addon title; the `X-Wago-ID` stays the same so existing installs continue receiving updates
+
+- [ ] **Full appearance customisation system** — deep-dive all visual options and expose everything in the settings panel
+
+  ### Health bar style
+  - **Color mode**: class color (current default) | solid green | solid white | role color (blue=tank, green=heal, red=dps) | custom RGBA
+  - **Texture**: which StatusBar texture to use (UI-StatusBar, Blizzard default, smooth gradient, etc.)
+  - **Show HP% text**: toggle on/off
+  - **HP% text position**: bottom-center (current) | top-center | center | BOTTOMRIGHT
+  - **HP% text font size**: small / normal / large
+
+  ### Class icon (left panel)
+  - **Show/hide** class icon: toggle
+  - **Icon style**:
+    - Class icon (current) — `Interface\WorldStateFrame\Icons-Classes`, texcoords per class
+    - Spec icon — `C_Specialization.GetSpecializationInfoByID` returns a `specIcon` FileID; show spec instead of class
+    - 3D portrait — `SetPortraitTexture(texture, unit)` renders the in-game 3D face portrait into a texture; needs a `Model` frame or `SetPortraitTextureFromUnit`
+    - 2D portrait — `SetPortraitToTexture(texture, unit)` for the flat portrait
+  - **Icon border**: none | thin black | colored by class
+
+  ### Frame background / border
+  - **Background color**: current dark RGBA | transparent | custom
+  - **Background alpha**: slider 0–1
+  - **Border color**: default grey | class color | custom
+  - **Border style**: thin (edgeSize 12) | thick (edgeSize 16) | none
+
+  ### Absorb / overlay bars
+  - **Absorb bar color**: electric blue (current) | white | custom RGBA
+  - **Absorb bar alpha**: slider 0–1
+  - **Heal absorb bar color**: dark red (current) | custom
+  - **Show absorb bar**: toggle
+
+  ### Power bar
+  - **Show/hide** power bar: toggle
+  - **Power bar height**: 4px / 6px (current) / 8px
+
+  ### Buff / debuff icons
+  - **Number of buff slots**: 0–5 (current 3)
+  - **Number of debuff slots**: 0–5 (current 3)
+  - **Icon size**: 16×16 | 20×20 (current) | 24×24
+  - **Show duration timer text**: toggle
+  - **Show cooldown swipe**: toggle
+  - **Show stack count**: toggle
+  - **Duration filter**: show all with duration | only short (<30s) | only medium (<3min) | all with timers
+  - **Aura layout**: left-to-right (current) | right-to-left | stacked vertically
+  - **Show dispel border**: toggle (currently always on for player's dispel class)
+
+  ### Role icon
+  - **Show/hide** role icon: toggle
+  - **Role icon position**: top-left inside bar (current) | below class icon | top-right
+
+  ### Leader crown
+  - **Show/hide** crown: toggle
+
+  ### Defensive icon
+  - **Show/hide** defensive CD icon: toggle
+  - **Icon size**: 16×16 | 20×20 (current) | 24×24
+  - **Priority**: external > personal (current) | personal > external | show both
+
+  ### Range dimming
+  - **Out-of-range alpha**: 0.4 (current) | 0.2 | 0.6 | custom
+  - **Enable/disable** range check: toggle
+
+  ### Frame size
+  - **Width**: slider (default 200)
+  - **Height**: slider (default 78)
+
+  ### Implementation notes
+  - All settings stored in `CHDPadPartyDB` with per-setting defaults
+  - Settings panel needs overhaul (tabbed layout) before most of these can be exposed
+  - 3D portrait (`SetPortraitTextureFromUnit`) requires a `PlayerModel` frame — research taint implications
+  - Spec icon: `GetSpecializationInfoByID(GetInspectSpecialization(unit))` may require inspect; check availability for party members without inspect
+
 - [ ] **Settings panel overhaul** — current flat button layout won't scale as more options are added
   - Replace the flat single-column panel with a tabbed or sectioned layout (e.g. General / Layout / Appearance / Auras tabs)
   - Layout selector: convert cycle button to a proper dropdown menu (WoW `UIDropDownMenu` or a custom scrollable list)
@@ -179,6 +260,23 @@
 
 ---
 
+## Class-Specific Mechanics
+
+- [x] **Atonement tracker (Discipline Priest)** — make it immediately obvious which party members have Atonement active
+  - Atonement (spellID 194384) is applied by the Disc Priest to party members via Power Word: Shield, Plea, Shadow Mend, etc.
+  - When the Priest deals damage, all active Atonement targets are healed — knowing who has it (and for how long) is the core gameplay loop of Disc Priest healing
+  - **Visual options to consider:**
+    - Bright golden/white glow or border pulse on the unit frame when Atonement is present
+    - A dedicated Atonement duration bar (thin bar below/above the health bar, distinct color — e.g. bright yellow or white)
+    - Large prominent icon (30×30 or bigger) in a fixed position on the frame, not mixed in with regular buff icons
+    - Remaining duration text shown prominently (countdown in large font, center of frame or below health bar)
+    - Frames WITHOUT Atonement could be visually dimmed or have a distinct "needs Atonement" border color
+  - Detection: `C_UnitAuras.GetAuraDataByIndex(unit, i, "HELPFUL")` scanning for spellId == 194384
+  - Expiration: `aura.expirationTime` drives the duration display; `aura.duration` is typically 15s
+  - Event: `UNIT_AURA` already registered
+  - This feature is only relevant when the player is a Discipline Priest — detect via `select(2, UnitClass("player")) == "PRIEST"` and `GetSpecialization() == 1` (Discipline is spec index 1)
+  - Could be extended to a general "highlighted spell" system: player configures a spell ID to always show prominently regardless of class
+
 ## Must-Have (significant gameplay impact)
 
 - [x] **Missing raid buff indicator** — icon/glow when a party member is missing a buff the player can provide
@@ -237,7 +335,7 @@
 
 ## Nice-to-Have (quality of life)
 
-- [ ] **Defensive ability icon** — show the icon of the active defensive cooldown in the center of the health bar
+- [x] **Defensive ability icon** — show the icon of the active defensive cooldown in the center of the health bar
   - **Personal defensives**: when a unit activates a personal defensive (e.g. Barkskin, Ice Block, Divine Shield, Survival Instincts, Blur, etc.) show the ability icon centered on their health bar
   - **External defensives**: when an external defensive is cast ON another party member (e.g. Blessing of Sacrifice, Rallying Cry, Pain Suppression, Guardian Angel, Life Cocoon, etc.) show the icon on the target's frame
   - Icon size: approximately the same as the class icon (20×20 or 22×22)
@@ -278,13 +376,14 @@
   - Whole-frame alpha reduction at full HP was too visible and confusing
   - Better approach: dim only the health bar backdrop or border, not the whole frame
 
-- [x] **HP text: show absorb% alongside health%** — e.g. "74% + 13%" with absorb in yellow
-  - Absorb% = `UnitGetTotalAbsorbs(unit)` / `UnitHealthMax(unit)` — both secret numbers,
-    so compute the ratio on the C side or use a percentage bar trick
-  - Simplest approach: show the absorb bar's fill percentage using a cached value updated
-    in `UpdateAbsorbs` → store `f._absorbPct` as a plain number, format in `UpdateFrame`
-  - HP text FontString should be at a high frame level (above absorb bar overlay)
-  - Format: `"74%"` normally, `"74% +13%"` (yellow +13%) when absorbs present
+- [ ] **HP text: absorb indicator** — blocked by secret numbers (see GOTCHAS G-076, G-078)
+  - `UnitGetTotalAbsorbs` has `SecretReturns` predicate: returns a secret-wrapped value in ALL
+    restricted contexts (M+/combat/PvP) regardless of whether a shield is present.
+    `issecretvalue()` therefore always returns `true` in combat → false-positive indicator.
+  - Absorb % cannot be computed: arithmetic between two secret numbers throws.
+  - Current workaround: the blue `absorbBar` overlay visually shows shield presence and magnitude.
+  - Possible future solution: if Blizzard adds a `UnitAbsorbPercent()` API (like they added
+    `UnitHealthPercent`) this becomes straightforward. Watch for it in future patches.
 
 - [x] **Resource bar layout** — health bar → power bar → buffs/debuffs
   - Power bar at y=-46 (directly below health bar); buffs/debuffs at y=-54
@@ -313,7 +412,14 @@
   - Vertical spacing for stacked: already known — frame height(78) + gap(8) = 86 per slot.
 
 - [ ] Player frame: show own castbar (channel + cast progress)
-- [ ] Configurable frame size and layout from settings panel
+- [ ] **Configurable frame size (width & height) in settings panel**
+  - Width slider (default 200px, range 120–320) and height slider (default 78px, range 50–120)
+  - Stored as `CHDPadPartyDB.frameWidth` / `CHDPadPartyDB.frameHeight`
+  - Changing width: call `f:SetWidth()` on all unit frames; update layout OFFSETS for side-by-side spacing (`frameWidth + 8`)
+  - Changing height: call `f:SetHeight()` on all unit frames; recalculate OFFSETS vertical spacing (`half-height + gap + half-height`) — see GOTCHAS "Frame height changes require recalculating OFFSETS"
+  - Health bar height = `frameHeight - 38` (keeps 6px power bar + 20px aura row + bottom padding)
+  - Settings panel: two sliders in the Layout tab, alongside the existing scale/layout controls
+  - Must be blocked in combat (`InCombatLockdown()`) since frame resizing is a layout operation
 - [ ] Show number of active crowd-control debuffs (CC tracker)
 - [ ] Clickcasting support (right-click = custom spell on unit)
 - [ ] Separate settings for party vs. raid (5-man vs 10/25-man layouts)

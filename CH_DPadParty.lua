@@ -100,6 +100,32 @@ local RAID_BUFF_BY_CLASS = {
 -- nil = not yet detected; false = player class has no raid buff to give
 local _playerRaidBuff = nil
 
+-- Atonement tracker: only active when player is Discipline Priest (spec ID 256).
+-- Populated by UpdateDiscSpec(); nil = not yet detected.
+local _isDiscPriest = nil
+
+-- Defensive cooldown spell IDs tracked by UpdateDefensive.
+-- EXTERNALS: cast by another player onto a party member; highest healer awareness priority.
+-- PERSONALS: cast by the unit on themselves.
+-- Source: TODO.md defensive ability icon spec.
+local DEFENSIVE_EXTERNALS = {
+    [6940]   = true,  -- Blessing of Sacrifice (Paladin)
+    [33206]  = true,  -- Pain Suppression (Priest)
+    [47788]  = true,  -- Guardian Spirit (Priest)
+    [116849] = true,  -- Life Cocoon (Monk)
+    [97462]  = true,  -- Rallying Cry (Warrior)
+    [370665] = true,  -- Rescue (Evoker)
+    [370960] = true,  -- Emerald Boon (Evoker)
+}
+local DEFENSIVE_PERSONALS = {
+    [642]    = true,  -- Divine Shield (Paladin)
+    [22812]  = true,  -- Barkskin (Druid)
+    [61336]  = true,  -- Survival Instincts (Druid)
+    [45438]  = true,  -- Ice Block (Mage)
+    [198589] = true,  -- Blur (Demon Hunter)
+    [48707]  = true,  -- Anti-Magic Shell (Death Knight)
+}
+
 -- Range check: use C_Spell.IsSpellInRange with a spec-specific friendly spell.
 -- Spell validated with IsPlayerSpell() — reliable unlike probing against "player".
 -- Result is a plain Lua boolean (== true / == false), not a secret value.
@@ -147,6 +173,23 @@ local function UpdateRangeSpell()
     end
     -- DK/DH/Hunter/Warrior/Rogue: _rangeFriendlySpell stays nil → fallback path
 end
+
+-- G-077: GetRaidTargetIndex can return a tainted secret number when called from a
+-- tainted execution context (e.g. Blizzard UI's SetRaidTarget from protected code).
+-- Arithmetic on a secret number always throws in TWW.  Pre-compute all 8 sets of
+-- SetTexCoord args so UpdateRaidMarker never needs arithmetic on the return value.
+-- Table lookup (t[secretNum]) does NOT go through the arithmetic taint checker and works.
+-- UI-RaidTargetingIcons: 4 columns × 2 rows; col=(idx-1)%4, row=floor((idx-1)/4).
+local RAID_MARKER_COORDS = {
+    { 0,    0.25, 0,   0.5  },  -- 1: Star
+    { 0.25, 0.5,  0,   0.5  },  -- 2: Circle
+    { 0.5,  0.75, 0,   0.5  },  -- 3: Diamond
+    { 0.75, 1.0,  0,   0.5  },  -- 4: Triangle
+    { 0,    0.25, 0.5, 1.0  },  -- 5: Moon
+    { 0.25, 0.5,  0.5, 1.0  },  -- 6: Square
+    { 0.5,  0.75, 0.5, 1.0  },  -- 7: Cross/X
+    { 0.75, 1.0,  0.5, 1.0  },  -- 8: Skull
+}
 
 -- G-072: isDispellable — file-local; closes only over _playerDispelTypes.
 -- Hoisted here (not inside UpdateAuras) so it is allocated once, not per-call.
@@ -336,38 +379,20 @@ function CHDPadParty.UpdateFrame(unit)
         f:Show()
 
         -- Health bar and HP% text.
-        -- WoW 12.0+ secret numbers: UnitHealth/UnitHealthMax cannot be used in Lua
-        -- arithmetic (throws "secret number" error in combat). DandersFrames pattern:
-        -- use UnitHealthPercent(unit, true, CurveConstants.ScaleTo100) which returns a
-        -- plain 0-100 float safe for any use. Normalise the bar to 0-100 to match.
+        -- UnitHealth / UnitHealthMax are secret numbers — pass to C functions only.
         -- G-057: SetMinMaxValues before SetValue.
-        -- G-070: UnitHealthPercent returns a secret number in tainted contexts.
-        -- Pass the raw value directly to SetValue (C function accepts secret numbers).
-        -- Wrap math.floor separately; only cache successfully floored integers.
-        -- hpPct is always a plain integer after this block (safe for string concat).
-        local hpPct = f._lastHpPct or 100
+        -- Guard: check only pcall success booleans (plain bools), never use secret
+        -- numbers in boolean coercion context (if secret then) — that creates a
+        -- tainted boolean which propagates and silently breaks downstream conditionals.
         do
-            -- Raw HP range so healPredictBar can share the same range.
-            -- UnitHealthMax / UnitHealth are secret numbers; pass to C functions only.
             local maxOk, maxHP = pcall(UnitHealthMax, unit)
             local hpOk,  hp    = pcall(UnitHealth, unit)
-            if maxOk and maxHP and hpOk and hp then
+            if maxOk and hpOk then
                 f.healthBar:SetMinMaxValues(0, maxHP)
                 f.healthBar:SetValue(hp)
             else
-                -- Taint/unavailability fallback: raw HP pcall failed this cycle.
-                -- Use cached percent so the bar always receives a SetValue call.
                 f.healthBar:SetMinMaxValues(0, 100)
                 f.healthBar:SetValue(f._lastHpPct or 0)
-            end
-            -- UnitHealthPercent is still needed for the human-readable hpText display.
-            local pctOk, raw = pcall(UnitHealthPercent, unit, true, CurveConstants.ScaleTo100)
-            if pctOk and raw then
-                local floorOk, pct = pcall(math.floor, raw)
-                if floorOk then
-                    f._lastHpPct = pct
-                    hpPct = pct
-                end
             end
         end
 
@@ -394,14 +419,21 @@ function CHDPadParty.UpdateFrame(unit)
         local name = UnitName(unit) or unit
         f.nameText:SetText(name)
 
-        -- HP percentage text — append gold "+" suffix when shields are present.
-        -- f._hasAbsorb set by UpdateAbsorbs. Percentage cannot be shown: both
-        -- UnitGetTotalAbsorbs and UnitHealthMax are secret numbers in TWW, making
-        -- the division arithmetic always throw regardless of combat state.
-        if f._hasAbsorb then
-            f.hpText:SetText(hpPct .. "% |cffFFD900+|r")
+        -- HP% text: UnitHealthPercent(unit, true, CurveConstants.ScaleTo100) → 0–100,
+        -- secret in M+/PvP/encounters. SetFormattedText is C-level and accepts secret
+        -- values directly (mirrors DandersFrames GetSafeHealthPercent). No math.floor.
+        -- _lastHpPct cache updated via pcall(math.floor) for overlay/fallback contexts.
+        if UnitHealthPercent then
+            local raw = UnitHealthPercent(unit, true, CurveConstants.ScaleTo100)
+            if raw ~= nil then
+                f.hpText:SetFormattedText("%.0f%%", raw)
+                local floorOk, pct = pcall(math.floor, raw)
+                if floorOk then f._lastHpPct = pct end
+            else
+                f.hpText:SetText((f._lastHpPct or 100) .. "%")
+            end
         else
-            f.hpText:SetText(hpPct .. "%")
+            f.hpText:SetText((f._lastHpPct or 100) .. "%")
         end
 
         -- Role icons (G-052: DAMAGER / HEALER / TANK; NONE hides slot 1)
@@ -497,6 +529,8 @@ function CHDPadParty.UpdateAll()
         CHDPadParty.UpdateRez(unit)
         CHDPadParty.UpdateVehicle(unit)
         CHDPadParty.UpdateRaidMarker(unit)
+        CHDPadParty.UpdateDefensive(unit)
+        CHDPadParty.UpdateAtonement(unit)
     end
 end
 
@@ -781,9 +815,11 @@ function CHDPadParty.UpdatePower(unit)
         f.powerBar:SetStatusBarColor(color[1], color[2], color[3], 1)
 
         -- UnitPowerMax / UnitPower are secret numbers: pass to C functions only (G-057)
+        -- Guard on pcall success booleans only — secret numbers must not be used in
+        -- boolean coercion context (if secretNum then) as that creates tainted booleans.
         local maxOk, maxPow = pcall(UnitPowerMax, unit)
         local powOk, pow    = pcall(UnitPower, unit)
-        if maxOk and maxPow and powOk and pow then
+        if maxOk and powOk then
             f.powerBar:SetMinMaxValues(0, maxPow)
             f.powerBar:SetValue(pow)
         else
@@ -807,35 +843,44 @@ function CHDPadParty.UpdateHealPrediction(unit)
 
     local ok, err = pcall(function()
         if not UnitExists(unit) then
-            f.healPredictBar:SetMinMaxValues(0, 1)
-            f.healPredictBar:SetValue(0)
+            f.healPredictBar:Hide()
             return
         end
 
-        -- Primary path: use the cached calculator (created once in BuildUnitFrame).
-        -- UnitGetDetailedHealPrediction populates it with health + incoming heal data on
-        -- the C side. calc:GetPredictedHealth() returns current health + capped incoming
-        -- heals as a secret number on the same raw HP scale as UnitHealthMax.
-        -- No Lua arithmetic on secret numbers anywhere in this path.
-        local calcOk = pcall(function()
-            local calc = f.healPredictCalc
-            UnitGetDetailedHealPrediction(unit, nil, calc)
-            -- GetPredictedHealth returns a secret number in the same raw HP range as
-            -- UnitHealthMax — safe to pass directly to SetValue.
-            -- OPEN QUESTION: verify method name at runtime (see PLAN.md Open Questions).
-            local maxOk, maxHP = pcall(UnitHealthMax, unit)
-            if maxOk and maxHP then
-                f.healPredictBar:SetMinMaxValues(0, maxHP)
-                f.healPredictBar:SetValue(calc:GetPredictedHealth())
-            end
-        end)
+        local calc = f.healPredictCalc
+        if not calc then
+            f.healPredictBar:Hide()
+            return
+        end
 
-        -- Fallback: if calculator API is absent or throws, hide the bar silently.
-        -- Do NOT attempt Lua arithmetic (UnitHealth + UnitGetIncomingHeals) as fallback —
-        -- that throws "attempt to perform arithmetic on a secret number" in WoW 12.0.
-        if not calcOk then
-            f.healPredictBar:SetMinMaxValues(0, 1)
-            f.healPredictBar:SetValue(0)
+        -- Populate calculator. calc:GetIncomingHeals() → total, fromHealer, fromOthers, clamped.
+        -- All return values are secret numbers in restricted contexts; passed to C only.
+        -- == nil is explicitly safe on secret numbers — hides bar when no heal incoming.
+        UnitGetDetailedHealPrediction(unit, nil, calc)
+        local amount = calc:GetIncomingHeals()
+        if amount == nil then
+            f.healPredictBar:Hide()
+            return
+        end
+
+        -- DandersFrames SANDWICH pattern: anchor left edge of prediction bar to the right
+        -- edge of the health fill texture. No Lua arithmetic — the C StatusBar API handles
+        -- fill proportion via SetMinMaxValues(0, maxHP) + SetValue(incomingHeals).
+        local fillTex = f.healthBar:GetStatusBarTexture()
+        if fillTex then
+            f.healPredictBar:ClearAllPoints()
+            f.healPredictBar:SetPoint("TOPLEFT",    fillTex, "TOPRIGHT",    0, 0)
+            f.healPredictBar:SetPoint("BOTTOMLEFT", fillTex, "BOTTOMRIGHT", 0, 0)
+            f.healPredictBar:SetWidth(f.healthBar:GetWidth())
+        end
+
+        local maxOk, maxHP = pcall(UnitHealthMax, unit)
+        if maxOk then
+            f.healPredictBar:SetMinMaxValues(0, maxHP)
+            f.healPredictBar:SetValue(amount)
+            f.healPredictBar:Show()
+        else
+            f.healPredictBar:Hide()
         end
     end)
     if not ok then
@@ -856,7 +901,6 @@ function CHDPadParty.UpdateAbsorbs(unit)
         if not UnitExists(unit) then
             if f.absorbBar     then f.absorbBar:SetMinMaxValues(0, 1);     f.absorbBar:SetValue(0)     end
             if f.healAbsorbBar then f.healAbsorbBar:SetMinMaxValues(0, 1); f.healAbsorbBar:SetValue(0) end
-            f._hasAbsorb = false
             return
         end
 
@@ -867,19 +911,8 @@ function CHDPadParty.UpdateAbsorbs(unit)
             local absorb = UnitGetTotalAbsorbs(unit) or 0
             f.absorbBar:SetMinMaxValues(0, maxHP)
             f.absorbBar:SetValue(absorb)
-            -- Detect presence for hpText "+" suffix via issecretvalue().
-            -- UnitGetTotalAbsorbs returns plain 0 when no shield is active, and a
-            -- SECRET number when a shield is active. Comparisons on secret numbers
-            -- return TAINTED booleans — assigning/using them propagates taint and
-            -- breaks UpdateFrame. issecretvalue(x) is WoW's provided function that
-            -- returns a plain (non-tainted) bool: true if x is secret, false if plain.
-            -- So issecretvalue(absorb) == true  ↔  shield is present.
-            if type(issecretvalue) == "function" then
-                f._hasAbsorb = issecretvalue(absorb)
-            else
-                -- issecretvalue unavailable (non-TWW build); leave unchanged.
-                f._hasAbsorb = false
-            end
+            -- Note: absorb presence for hpText is now detected inline in UpdateFrame
+            -- using issecretvalue(UnitGetTotalAbsorbs(unit)) — no cache needed here.
         end
 
         -- Heal absorb (Necrotic M+ affix, Mangle, Plaguebringer, etc.)
@@ -1000,16 +1033,131 @@ function CHDPadParty.UpdateRaidMarker(unit)
     local f = CHDPadParty.frames[unit]
     if not f or not f.raidMarker then return end
 
+    -- G-077: GetRaidTargetIndex returns a tainted secret number in some contexts.
+    -- Table lookup avoids all arithmetic on idx — see RAID_MARKER_COORDS comment above.
     local idx = GetRaidTargetIndex(unit)
-    if idx then
-        -- UI-RaidTargetingIcons: 4 columns × 2 rows, each cell 0.25 wide × 0.5 tall
-        local col = (idx - 1) % 4
-        local row = math.floor((idx - 1) / 4)
-        f.raidMarker.tex:SetTexCoord(col * 0.25, (col + 1) * 0.25, row * 0.5, (row + 1) * 0.5)
+    local coords = idx and RAID_MARKER_COORDS[idx]
+    if coords then
+        f.raidMarker.tex:SetTexCoord(coords[1], coords[2], coords[3], coords[4])
         f.raidMarker:Show()
     else
         f.raidMarker:Hide()
     end
+end
+
+------------------------------------------------------------------------
+-- UpdateDiscSpec / UpdateAtonement
+------------------------------------------------------------------------
+
+-- Detect whether the player is currently Discipline Priest (spec ID 256).
+-- Called on PLAYER_ENTERING_WORLD and PLAYER_TALENT_UPDATE.
+local function UpdateDiscSpec()
+    local specIndex = GetSpecialization and GetSpecialization()
+    if specIndex then
+        local specID = GetSpecializationInfo and GetSpecializationInfo(specIndex)
+        _isDiscPriest = (specID == 256)
+    else
+        _isDiscPriest = false
+    end
+    -- When spec changes, hide all atonement icons immediately.
+    if not _isDiscPriest then
+        for _, unit in ipairs(UNIT_SLOTS) do
+            local f = CHDPadParty.frames[unit]
+            if f and f.atonementIcon then
+                f.atonementIcon:Hide()
+            end
+        end
+    end
+end
+
+-- Atonement tracker: show a prominent icon + cooldown swipe on the unit frame when
+-- Atonement (194384) is active. Uses GetAuraDataBySpellName for O(1) lookup (no loop).
+-- expirationTime - GetTime() is safe: Atonement is a whitelisted public aura; both
+-- values are plain numbers (confirmed by DandersFrames AuraDesigner research).
+function CHDPadParty.UpdateAtonement(unit)
+    if not _isDiscPriest then return end
+    if CHDPadPartyDB and CHDPadPartyDB.testMode then return end
+    local f = CHDPadParty.frames[unit]
+    if not f or not f.atonementIcon then return end
+
+    pcall(function()
+        if not UnitExists(unit) then
+            f.atonementIcon:Hide()
+            return
+        end
+
+        -- Filter "HELPFUL|PLAYER": only Atonements applied by the player (us).
+        local aura = C_UnitAuras.GetAuraDataBySpellName(unit, "Atonement", "HELPFUL|PLAYER")
+        if aura and aura.icon and aura.expirationTime and aura.expirationTime > 0 then
+            f.atonementIcon.tex:SetTexture(aura.icon)
+            -- Cooldown swipe: SetCooldown(start, duration) — start = expirationTime - duration
+            if aura.duration and aura.duration > 0 then
+                CooldownFrame_Set(f.atonementIcon.cooldown,
+                    aura.expirationTime - aura.duration, aura.duration, 1)
+                f.atonementIcon.cooldown:Show()
+            else
+                f.atonementIcon.cooldown:Hide()
+            end
+            -- Cache expiration for the timer ticker
+            f.atonementIcon._expireTime = aura.expirationTime
+            f.atonementIcon:Show()
+        else
+            f.atonementIcon:Hide()
+            f.atonementIcon._expireTime = nil
+            f.atonementIcon.timer:SetText("")
+        end
+    end)
+end
+
+------------------------------------------------------------------------
+-- UpdateDefensive
+------------------------------------------------------------------------
+
+function CHDPadParty.UpdateDefensive(unit)
+    if CHDPadPartyDB and CHDPadPartyDB.testMode then return end
+    local f = CHDPadParty.frames[unit]
+    if not f or not f.defIcon then return end
+
+    pcall(function()
+        if not UnitExists(unit) then
+            f.defIcon:Hide()
+            return
+        end
+
+        -- Scan HELPFUL auras for known defensive spell IDs.
+        -- Defensive buffs are public (not private) — a single nil means list ended;
+        -- simple break is correct here (no consecutive-nil logic needed).
+        -- Duration filter: >0 (not permanent) and <=600 (10 min cap, excludes permanent
+        -- buffs like Blessing of Kings that happen to share no ID with defensives, but
+        -- provides an extra safety net against future table collisions).
+        local bestIcon     = nil
+        local bestPriority = 0  -- 0=none, 1=personal, 2=external
+
+        for i = 1, 40 do
+            local ok, aura = pcall(C_UnitAuras.GetAuraDataByIndex, unit, i, "HELPFUL")
+            if not ok or not aura then break end
+            if aura.spellId and aura.icon
+               and aura.duration and aura.duration > 0 and aura.duration <= 600 then
+                local priority = 0
+                if DEFENSIVE_EXTERNALS[aura.spellId] then
+                    priority = 2
+                elseif DEFENSIVE_PERSONALS[aura.spellId] then
+                    priority = 1
+                end
+                if priority > bestPriority then
+                    bestPriority = priority
+                    bestIcon = aura.icon
+                end
+            end
+        end
+
+        if bestIcon then
+            f.defIcon.tex:SetTexture(bestIcon)
+            f.defIcon:Show()
+        else
+            f.defIcon:Hide()
+        end
+    end)
 end
 
 ------------------------------------------------------------------------
@@ -1035,13 +1183,19 @@ function CHDPadParty.ApplyTestMode()
                 f.healthBar:SetMinMaxValues(0, 100)
                 f.healthBar:SetValue(frac * 100)
 
-                -- Heal prediction bar: fake teal overshoot in test mode.
-                -- Shares the same 0–100 normalised range as healthBar in test mode.
-                -- Value = current health% + fake incoming 30%, capped at 100.
+                -- Heal prediction bar: fake 30% incoming in test mode.
+                -- Anchors to health fill texture right edge (same as live mode).
                 if f.healPredictBar then
-                    local fakePredict = math.min(100, frac * 100 + 30)
+                    local fillTex = f.healthBar:GetStatusBarTexture()
+                    if fillTex then
+                        f.healPredictBar:ClearAllPoints()
+                        f.healPredictBar:SetPoint("TOPLEFT",    fillTex, "TOPRIGHT",    0, 0)
+                        f.healPredictBar:SetPoint("BOTTOMLEFT", fillTex, "BOTTOMRIGHT", 0, 0)
+                        f.healPredictBar:SetWidth(f.healthBar:GetWidth())
+                    end
                     f.healPredictBar:SetMinMaxValues(0, 100)
-                    f.healPredictBar:SetValue(fakePredict)
+                    f.healPredictBar:SetValue(30)
+                    f.healPredictBar:Show()
                 end
 
                 -- Class icon
@@ -1055,15 +1209,8 @@ function CHDPadParty.ApplyTestMode()
                     end
                 end
 
-                -- Name and HP% — first frame previews gold absorb suffix
                 f.nameText:SetText(TEST_NAMES[idx] or ("Test" .. idx))
-                local fakePct = math.floor(frac * 100)
-                if idx == 1 then
-                    -- Test mode: preview absorb "+" suffix on first frame (fake shield)
-                    f.hpText:SetText(fakePct .. "% |cffFFD900+|r")
-                else
-                    f.hpText:SetText(fakePct .. "%")
-                end
+                f.hpText:SetText(math.floor(frac * 100) .. "%")
 
                 -- Role icons (slot 1 = LFG role; hide rest)
                 for i = 1, #f.roleIcons do f.roleIcons[i]:Hide() end
@@ -1212,6 +1359,8 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
         if UNIT_LOOKUP[arg1] and not (CHDPadPartyDB and CHDPadPartyDB.testMode) then
             CHDPadParty.UpdateAuras(arg1)
             CHDPadParty.UpdateMissingBuff(arg1)
+            CHDPadParty.UpdateDefensive(arg1)
+            CHDPadParty.UpdateAtonement(arg1)
         end
 
     elseif event == "PLAYER_TARGET_CHANGED" then
@@ -1238,6 +1387,7 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
         UpdateRangeSpell()
         -- G-072: detect which debuff types the player can dispel.
         UpdateDispelTypes()
+        UpdateDiscSpec()
 
         -- G-RANGE-5: range ticker created here, not in Init — unit data unavailable
         -- at ADDON_LOADED time. Guard prevents stacking on every zone transition.
@@ -1273,6 +1423,16 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
                                 elseif icon.timer then
                                     icon.timer:SetText("")
                                 end
+                            end
+                        end
+                        -- Atonement countdown timer
+                        if f.atonementIcon and f.atonementIcon:IsShown()
+                           and f.atonementIcon._expireTime then
+                            local rem = f.atonementIcon._expireTime - now
+                            if rem > 0 then
+                                f.atonementIcon.timer:SetText(math.floor(rem))
+                            else
+                                f.atonementIcon.timer:SetText("")
                             end
                         end
                     end
@@ -1312,14 +1472,21 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
         end
 
     elseif event == "RAID_TARGET_UPDATE" then
-        -- Fires with no unit arg — refresh all frames
-        for _, unit in ipairs(UNIT_SLOTS) do
-            CHDPadParty.UpdateRaidMarker(unit)
-        end
+        -- G-077: RAID_TARGET_UPDATE can fire while inside Blizzard's protected SetRaidTarget
+        -- call chain (e.g. the right-click unit popup). In that tainted context,
+        -- GetRaidTargetIndex returns a secret number — unusable for arithmetic OR table lookup.
+        -- Defer to the next frame via C_Timer.After(0) so the callback runs in a clean,
+        -- untainted execution context where GetRaidTargetIndex returns a plain number.
+        C_Timer.After(0, function()
+            for _, unit in ipairs(UNIT_SLOTS) do
+                CHDPadParty.UpdateRaidMarker(unit)
+            end
+        end)
 
     elseif event == "PLAYER_TALENT_UPDATE" then
         UpdateRangeSpell()
         UpdateDispelTypes()
+        UpdateDiscSpec()
     end
 end)
 

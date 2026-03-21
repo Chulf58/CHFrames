@@ -7,11 +7,14 @@ Agents: read this before planning or coding anything.
 
 ## WoW 12.0 Secret Numbers
 
-**G-070 — UnitHealthPercent returns a secret number in tainted contexts.**
-Do NOT call `UnitHealthPercent` from inside event handlers that have been tainted (e.g. after touching CompactPartyFrame). Wrap in `pcall` and fall back to `f._lastHpPct` if it fails.
+**G-070 — Always use `UnitHealthPercent(unit, true, CurveConstants.ScaleTo100)` + `SetFormattedText`.**
+Bare `UnitHealthPercent(unit)` can return nil or fail in some contexts, causing a fallback to a stale 100% cache. Always call with the explicit curve arg — mirrors DandersFrames' `GetSafeHealthPercent`. Use `SetFormattedText("%.0f%%", raw)` to display it; `SetFormattedText` is C-level and accepts secret values directly. No `math.floor` or string concatenation needed. Keep a `_lastHpPct` cache updated via `pcall(math.floor, raw)` for fallback contexts (overlay text, etc.).
 
 **WoW 12.0 — UnitHealth / UnitHealthMax cannot be used in Lua arithmetic.**
-In combat or tainted contexts these return secret numbers. Lua `+`, `-`, `*`, `/`, `math.floor` on them throws. Pass directly to C StatusBar API (`SetValue`, `SetMinMaxValues`) only. Use `UnitHealthPercent(unit, true, CurveConstants.ScaleTo100)` for a plain 0–100 float when you need arithmetic.
+In combat or tainted contexts these return secret numbers. Lua `+`, `-`, `*`, `/`, `math.floor` on them throws. Pass directly to C StatusBar API (`SetValue`, `SetMinMaxValues`) only. Use `UnitHealthPercent(unit)` for a plain 0–100 float when you need arithmetic.
+
+**WoW 12.0 — Never use secret numbers in boolean coercion context.**
+`if maxOk and maxHP and hpOk and hp then` — `maxHP` and `hp` are secret numbers. Using them in `and`/`if` boolean context produces tainted booleans that propagate and silently break downstream conditionals. Guard only on pcall success booleans: `if maxOk and hpOk then`. The secret values go directly to C functions.
 
 **WoW 12.0 — UnitGetIncomingHeals, UnitGetTotalAbsorbs, UnitGetTotalHealAbsorbs.**
 All return secret numbers. Pass directly to `SetValue` / `SetMinMaxValues`. Never do Lua math on them.
@@ -77,6 +80,9 @@ Calling `EnableMouse(false)` on the unit frame breaks click-to-target because th
 **G-061 — party1–4 are nil in raid; hide when solo too.**
 `UnitExists("party1")` returns false when solo and in raid. Always call `UpdateVisibility()` on `GROUP_ROSTER_UPDATE` and `PLAYER_ENTERING_WORLD`. Do not show party frames when `IsInRaid()` is true.
 
+**G-078 — Heal prediction: use `calc:GetIncomingHeals()` not `GetPredictedHealth()`; anchor to fill texture.**
+`CreateUnitHealPredictionCalculator()` returns a calc object. After `UnitGetDetailedHealPrediction(unit, nil, calc)`, call `calc:GetIncomingHeals()` → `total, fromHealer, fromOthers, clamped`. `GetPredictedHealth()` does not exist. For the bar: use DandersFrames SANDWICH pattern — anchor the prediction bar's TOPLEFT/BOTTOMLEFT to the health fill texture's TOPRIGHT/BOTTOMRIGHT (`f.healthBar:GetStatusBarTexture()`). Set `bar:SetWidth(healthBar:GetWidth())`, `bar:SetMinMaxValues(0, maxHP)`, `bar:SetValue(amount)`. No Lua arithmetic on secret numbers — the C StatusBar handles the fill proportion internally.
+
 **Absorb bars parented to healthBar at frame level +1.**
 Parent `absorbBar` and `healAbsorbBar` to the healthBar StatusBar. Set their frame level to `bar:GetFrameLevel() + 1` so they render ON TOP of the health fill at all times — visible even at full health. Semi-transparent alpha (0.4 / 0.45) keeps nameText/hpText readable through the overlay. Using `bar:GetFrameLevel()` (same level as healthBar) buries the absorb under the health fill texture when health is full — the absorb becomes invisible.
 
@@ -141,3 +147,7 @@ The player frame always shows real character data even in test mode. Only party1
 
 **G-076 — Use issecretvalue() to detect non-zero secret numbers; never compare them directly.**
 `UnitGetTotalAbsorbs` returns plain `0` when no shield is active, and a secret number when a shield is present. Comparisons like `absorb ~= 0` on secret numbers return TAINTED booleans — assigning a tainted boolean to a field and using it in a conditional in a different function propagates taint and silently breaks behavior. Use `issecretvalue(absorb)` instead: it returns a plain (non-tainted) boolean indicating whether the value is secret. Pattern: `f._hasAbsorb = type(issecretvalue) == "function" and issecretvalue(absorb)`.
+
+**G-077 — GetRaidTargetIndex returns a secret number inside Blizzard's SetRaidTarget call chain.**
+When the UnitPopup calls `SetRaidTarget` from protected code, `RAID_TARGET_UPDATE` fires in a tainted context. `GetRaidTargetIndex` then returns a secret number. **Both** arithmetic (`(idx-1) % 4`) AND table lookup (`t[idx]`) throw — `table index is secret` is just as fatal as arithmetic. The only safe comparison on a secret number is `== nil`.
+Fix: defer the update with `C_Timer.After(0, ...)`. The timer callback runs in the next frame's clean, untainted execution context where `GetRaidTargetIndex` returns a plain number again. Never call `UpdateRaidMarker` synchronously from `RAID_TARGET_UPDATE`.

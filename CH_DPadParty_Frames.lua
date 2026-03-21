@@ -119,21 +119,20 @@ function CHDPadParty.BuildUnitFrame(unit)
     bar:SetValue(100)
     f.healthBar = bar
 
-    -- Heal prediction bar: teal extension of healthBar showing incoming heals.
-    -- Parented to healthBar so it shares the same coordinate space.
-    -- Frame level BELOW healthBar so health fill occludes it; only the teal
-    -- portion to the right of the health fill is visible — that is the incoming heal.
-    -- SetAllPoints(bar): same origin, size, and position as healthBar.
-    -- Color: bright teal (0.0, 0.8, 0.6, 0.85).
-    -- SetMinMaxValues / SetValue accept secret numbers — passed directly to C functions.
-    -- math.max(1, ...) guards against frame level underflow if bar is at level 0.
+    -- Heal prediction bar: anchored dynamically to the right edge of the health fill
+    -- texture (DandersFrames SANDWICH pattern). Frame level +1 = above health fill,
+    -- so it is visible as a teal extension to the right of the current HP fill.
+    -- No SetAllPoints — TOPLEFT/BOTTOMLEFT are attached to the fill texture's
+    -- TOPRIGHT/BOTTOMRIGHT in UpdateHealPrediction at runtime.
+    -- SetMinMaxValues(0, maxHP) + SetValue(incomingHeals) on the C side handles the
+    -- proportional fill width — no Lua arithmetic on secret numbers needed.
     local healPredictBar = CreateFrame("StatusBar", nil, bar)
-    healPredictBar:SetFrameLevel(math.max(1, bar:GetFrameLevel() - 1))
-    healPredictBar:SetAllPoints(bar)
+    healPredictBar:SetFrameLevel(bar:GetFrameLevel() + 1)
     healPredictBar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
     healPredictBar:SetStatusBarColor(0.0, 0.8, 0.6, 0.85)
-    healPredictBar:SetMinMaxValues(0, 1)  -- G-057: range set properly on first UpdateHealPrediction call
+    healPredictBar:SetMinMaxValues(0, 1)
     healPredictBar:SetValue(0)
+    healPredictBar:Hide()
     f.healPredictBar = healPredictBar
 
     -- Cache the calculator once per frame. CreateUnitHealPredictionCalculator is a
@@ -157,17 +156,14 @@ function CHDPadParty.BuildUnitFrame(unit)
     nameText:SetTextColor(1, 1, 1, 1)
     f.nameText = nameText
 
-    -- HP text
-    local hpText = textPane:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    hpText:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", -4, 4)
-    hpText:SetJustifyH("RIGHT")
+    -- HP text — centered at the bottom of the health bar.
+    -- Bottom-center gives the full bar width for the text and won't overflow.
+    -- Absorb "+" suffix is appended inline in UpdateFrame when shields are active.
+    local hpText = textPane:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    hpText:SetPoint("BOTTOM", bar, "BOTTOM", 0, 4)
+    hpText:SetJustifyH("CENTER")
     hpText:SetTextColor(1, 1, 1, 1)
     f.hpText = hpText
-    -- Absorb presence flag. True when damage absorbs (shields) are active.
-    -- UnitGetTotalAbsorbs and UnitHealthMax are both secret numbers in TWW —
-    -- arithmetic between them always throws, so we cannot compute a percentage.
-    -- UpdateAbsorbs sets this boolean; UpdateFrame uses it to show a "+" suffix.
-    f._hasAbsorb = false
 
     -- Role icon row (below player name, slots grow left to right).
     -- Slot 1 = LFG role (TANK/HEALER/DAMAGER). Extra slots reserved for future use (MT, MA, etc.).
@@ -419,6 +415,53 @@ function CHDPadParty.BuildUnitFrame(unit)
     raidMarker.tex = raidTex
     raidMarker:Hide()
     f.raidMarker = raidMarker
+
+    -- Defensive cooldown icon (20×20, centered on health bar).
+    -- Shows when a tracked defensive CD is active on the unit (personal or external).
+    -- Priority: external defensives (Pain Suppression, Guardian Spirit, etc.) >
+    --           personal defensives (Barkskin, Ice Block, Divine Shield, etc.)
+    -- Frame level +2: same as textPane; draw order (created later) puts it above text.
+    -- Hidden by default; shown/hidden by UpdateDefensive on UNIT_AURA.
+    local defIcon = CreateFrame("Frame", nil, bar, "BackdropTemplate")
+    defIcon:SetSize(30, 30)
+    defIcon:SetPoint("CENTER", bar, "CENTER", 0, 0)
+    defIcon:SetFrameLevel(bar:GetFrameLevel() + 2)
+    defIcon:SetBackdrop({ bgFile = "Interface\\Tooltips\\UI-Tooltip-Background" })
+    defIcon:SetBackdropColor(0, 0, 0, 0.8)
+    local defIconTex = defIcon:CreateTexture(nil, "ARTWORK")
+    defIconTex:SetAllPoints(defIcon)
+    defIcon.tex = defIconTex
+    defIcon:Hide()
+    f.defIcon = defIcon
+
+    -- Atonement tracker icon (18×18, bottom-left of health bar).
+    -- Shown only when the player is Discipline Priest (spec 256) and Atonement (194384)
+    -- is active on this unit. CooldownFrame provides the swipe animation.
+    -- Timer text to the right shows remaining seconds.
+    local atonementIcon = CreateFrame("Frame", nil, bar, "BackdropTemplate")
+    atonementIcon:SetSize(18, 18)
+    atonementIcon:SetPoint("BOTTOMLEFT", bar, "BOTTOMLEFT", 4, 4)
+    atonementIcon:SetFrameLevel(bar:GetFrameLevel() + 3)
+    atonementIcon:SetBackdrop({ bgFile = "Interface\\Tooltips\\UI-Tooltip-Background" })
+    atonementIcon:SetBackdropColor(0, 0, 0, 0.8)
+    local atonementTex = atonementIcon:CreateTexture(nil, "ARTWORK")
+    atonementTex:SetAllPoints(atonementIcon)
+    atonementIcon.tex = atonementTex
+    local atonementCD = CreateFrame("Cooldown", nil, atonementIcon, "CooldownFrameTemplate")
+    atonementCD:SetAllPoints(atonementIcon)
+    atonementCD:SetDrawEdge(false)
+    atonementCD:SetDrawBling(false)
+    atonementCD:SetHideCountdownNumbers(true)
+    atonementCD:Hide()
+    atonementIcon.cooldown = atonementCD
+    local atonementTimer = atonementIcon:CreateFontString(nil, "OVERLAY")
+    atonementTimer:SetFont("Fonts\\FRIZQT__.TTF", 10, "OUTLINE")
+    atonementTimer:SetPoint("BOTTOMLEFT", atonementIcon, "BOTTOMRIGHT", 2, 0)
+    atonementTimer:SetTextColor(1, 0.85, 0, 1)
+    atonementTimer:SetText("")
+    atonementIcon.timer = atonementTimer
+    atonementIcon:Hide()
+    f.atonementIcon = atonementIcon
 
     -- Target highlight ring: a border-only frame positioned 6px OUTSIDE f on all sides.
     -- Wraps visually around the unit frame instead of drawing inside it.
