@@ -711,28 +711,20 @@ function CHDPadParty.UpdateRange(unit)
 
     -- G-RANGE-3: player is always in range
     if unit == "player" then
-        f:SetAlpha(1.0)
+        f._oorAlpha = 1.0
+        ApplyCombinedAlpha(f)
         return
     end
 
-    -- G-RANGE-4: UnitInRange returns a secret boolean in WoW 12.0.
-    -- Guard with issecretvalue() before any conditional.
-    -- Fallback: CheckInteractDistance(unit, 4) (~28 yds) → assume in-range.
-    local inRange = true  -- safe optimistic default
-    local ok, result = pcall(UnitInRange, unit)
-    if ok and result ~= nil then
-        if issecretvalue and issecretvalue(result) then
-            -- Tainted — try interact-distance fallback
-            local fbOk, close = pcall(CheckInteractDistance, unit, 4)
-            if fbOk and close ~= nil and not (issecretvalue and issecretvalue(close)) then
-                inRange = close
-            end
-            -- else: leave inRange = true (assume in-range on taint)
-        else
-            inRange = result
-        end
+    -- G-RANGE-4: UnitInRange returns a secret boolean in WoW 12.0 that evaluates
+    -- as false in plain Lua comparisons, causing all party members to appear OOR.
+    -- CheckInteractDistance(unit, 4) returns a plain Lua boolean (~28 yd) and is
+    -- reliable.  Only mark OOR if it explicitly returns false; any error → in-range.
+    local inRange = true  -- optimistic default; avoids false greying on API failure
+    local ok, result = pcall(CheckInteractDistance, unit, 4)
+    if ok and result == false then
+        inRange = false
     end
-    -- pcall failure (unit absent, API error): leave inRange = true (assume in-range)
 
     f._oorAlpha = inRange and 1.0 or 0.4
     ApplyCombinedAlpha(f)
