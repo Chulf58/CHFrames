@@ -134,3 +134,7 @@ When `CHDPadPartyDB.testMode` is true, `UpdateAuras` must return immediately for
 
 **Test mode never overwrites player slot.**
 The player frame always shows real character data even in test mode. Only party1–4 get fake data. `ApplyTestMode` skips `unit == "player"` and calls `UpdateFrame("player")` instead.
+
+
+**G-075 — Use RegisterStateDriver to hide Blizzard party frames; never call Lua methods on them.**
+`RegisterStateDriver(frame, "visibility", "hide")` routes through Blizzard's secure C-level state driver without tainting our context. Calling `:Hide()`, `:UnregisterAllEvents()`, or any Lua method on `PartyFrame`/`CompactPartyFrame`/`CompactRaidFrameManager` triggers G-CRITICAL taint. Implemented in `CH_DPadParty_HideBlizzard.lua`, triggered on `PLAYER_LOGIN` with a guard flag. KNOWN LIMITATION: `PLAYER_LOGIN` does not re-fire on `/reload`. CompactPartyFrame and CompactRaidFrameManager are excluded until in-game taint testing confirms safety.

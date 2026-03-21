@@ -375,8 +375,13 @@ function CHDPadParty.UpdateFrame(unit)
         local name = UnitName(unit) or unit
         f.nameText:SetText(name)
 
-        -- HP percentage text
-        f.hpText:SetText(hpPct .. "%")
+        -- HP percentage text — append gold absorb% suffix when shields are present.
+        -- |cffFFD900 = gold. f._absorbPct cached by UpdateAbsorbs (0 = none).
+        if f._absorbPct and f._absorbPct > 0 then
+            f.hpText:SetText(hpPct .. "% |cffFFD900+" .. f._absorbPct .. "%|r")
+        else
+            f.hpText:SetText(hpPct .. "%")
+        end
 
         -- Role icons (G-052: DAMAGER / HEALER / TANK; NONE hides slot 1)
         -- Slot 1 = LFG role. Hide all slots first then populate from left.
@@ -469,6 +474,7 @@ function CHDPadParty.UpdateAll()
         CHDPadParty.UpdateMissingBuff(unit)
         CHDPadParty.UpdateRange(unit)
         CHDPadParty.UpdateRez(unit)
+        CHDPadParty.UpdateVehicle(unit)
         CHDPadParty.UpdateRaidMarker(unit)
     end
 end
@@ -809,6 +815,7 @@ function CHDPadParty.UpdateAbsorbs(unit)
         if not UnitExists(unit) then
             if f.absorbBar     then f.absorbBar:SetMinMaxValues(0, 1);     f.absorbBar:SetValue(0)     end
             if f.healAbsorbBar then f.healAbsorbBar:SetMinMaxValues(0, 1); f.healAbsorbBar:SetValue(0) end
+            f._absorbPct = 0
             return
         end
 
@@ -819,6 +826,20 @@ function CHDPadParty.UpdateAbsorbs(unit)
             local absorb = UnitGetTotalAbsorbs(unit) or 0
             f.absorbBar:SetMinMaxValues(0, maxHP)
             f.absorbBar:SetValue(absorb)
+            -- Zero-clear: shield dropped, remove suffix immediately.
+            if absorb == 0 then
+                f._absorbPct = 0
+            else
+                -- Inner pcall: UnitGetTotalAbsorbs and UnitHealthMax both inside
+                -- so secret-number taint cannot escape into bare Lua arithmetic.
+                -- On failure: cache retains previous value (stale but safe).
+                local pctOk, pct = pcall(function()
+                    return math.floor(UnitGetTotalAbsorbs(unit) / UnitHealthMax(unit) * 100)
+                end)
+                if pctOk then
+                    f._absorbPct = pct
+                end
+            end
         end
 
         -- Heal absorb (Necrotic M+ affix, Mangle, Plaguebringer, etc.)
@@ -915,6 +936,22 @@ function CHDPadParty.UpdateRez(unit)
 end
 
 ------------------------------------------------------------------------
+-- UpdateVehicle
+------------------------------------------------------------------------
+
+function CHDPadParty.UpdateVehicle(unit)
+    if CHDPadPartyDB and CHDPadPartyDB.testMode then return end
+    local f = CHDPadParty.frames[unit]
+    if not f or not f.vehicleIcon then return end
+    local ok, result = pcall(UnitHasVehicleUI, unit)
+    if ok and result then
+        f.vehicleIcon:Show()
+    else
+        f.vehicleIcon:Hide()
+    end
+end
+
+------------------------------------------------------------------------
 -- UpdateRaidMarker
 ------------------------------------------------------------------------
 
@@ -978,9 +1015,14 @@ function CHDPadParty.ApplyTestMode()
                     end
                 end
 
-                -- Name and HP%
+                -- Name and HP% — first frame previews gold absorb suffix
                 f.nameText:SetText(TEST_NAMES[idx] or ("Test" .. idx))
-                f.hpText:SetText(math.floor(frac * 100) .. "%")
+                local fakePct = math.floor(frac * 100)
+                if idx == 1 then
+                    f.hpText:SetText(fakePct .. "% |cffFFD900+18%|r")
+                else
+                    f.hpText:SetText(fakePct .. "%")
+                end
 
                 -- Role icons (slot 1 = LFG role; hide rest)
                 for i = 1, #f.roleIcons do f.roleIcons[i]:Hide() end
@@ -1064,6 +1106,8 @@ eventFrame:RegisterEvent("UNIT_THREAT_SITUATION_UPDATE") -- aggro/threat state c
 eventFrame:RegisterEvent("INCOMING_RESURRECT_CHANGED")  -- incoming rez changed
 eventFrame:RegisterEvent("INCOMING_SUMMON_CHANGED")     -- incoming summon changed
 eventFrame:RegisterEvent("RAID_TARGET_UPDATE")          -- raid marker assigned/cleared
+eventFrame:RegisterEvent("UNIT_ENTERED_VEHICLE")        -- unit mounted a vehicle
+eventFrame:RegisterEvent("UNIT_EXITED_VEHICLE")         -- unit dismounted from vehicle
 
 eventFrame:SetScript("OnEvent", function(self, event, arg1)
     if event == "ADDON_LOADED" then
@@ -1213,6 +1257,11 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
     elseif event == "INCOMING_RESURRECT_CHANGED" or event == "INCOMING_SUMMON_CHANGED" then
         if arg1 and UNIT_LOOKUP[arg1] then
             CHDPadParty.UpdateRez(arg1)
+        end
+
+    elseif event == "UNIT_ENTERED_VEHICLE" or event == "UNIT_EXITED_VEHICLE" then
+        if arg1 and UNIT_LOOKUP[arg1] then
+            CHDPadParty.UpdateVehicle(arg1)
         end
 
     elseif event == "RAID_TARGET_UPDATE" then

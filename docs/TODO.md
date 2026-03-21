@@ -2,7 +2,7 @@
 
 ## High Priority / Infrastructure
 
-- [ ] **Auto-hide default WoW party frames when this addon is enabled**
+- [x] **Auto-hide default WoW party frames when this addon is enabled**
   - Players shouldn't have to manually disable the Blizzard party frames in Interface settings
   - **Constraint**: calling `CompactPartyFrame:Hide()` or `UnregisterAllEvents()` from insecure
     addon code permanently taints the addon's execution context, breaking health/power updates
@@ -181,6 +181,21 @@
   - Player class detected once via `UnitClassBase("player")` or `select(2, UnitClass("player"))`
   - Only show the indicator when the player is in a group (not solo) and the buff is castable at range
 
+- [x] **Dispel priority + class-aware filtering + debuff type icons**
+  - **⚠ Research needed**: Blizzard changed private/public aura visibility rules for debuffs (TWW patch, 2026-03-21 week). Must verify which debuffs are visible to non-casters via `C_UnitAuras` before implementing.
+  - Dispellable debuffs must always appear first in the debuff slots (sort by dispellability)
+  - Only highlight dispellable debuffs that the player's class can actually remove:
+    - Priests: Magic, Disease
+    - Druids: Magic, Curse, Poison
+    - Paladins: Magic, Poison, Disease
+    - Shamans: Magic, Curse, Poison
+    - Monks: Magic, Poison, Disease (Detox)
+    - Mages: Curse (Remove Curse)
+    - Warlocks: Magic on self only (Singe Magic via Imp)
+  - Colored border per debuff type (Magic=blue, Curse=purple, Poison=green, Disease=brown) — only active for types the player can dispel
+  - **Debuff type icon**: small icon in the corner of each debuff slot showing the type (same icons Blizzard default frames use — `DebuffTypeAtlas` or `Interface\Icons\Debuff_*` textures). Easier to read than border color alone on Steam Deck.
+  - Source: `aura.dispelName` from `C_UnitAuras.GetAuraDataByIndex` gives the type string directly
+
 - [x] **Range indicator — grey out at >40 yards**
   - Uses `C_Spell.IsSpellInRange` with a spec/class-specific friendly spell (DandersFrames/Grid2 pattern)
   - Spell validated with `IsPlayerSpell()` before use; result compared with `== true` / `== false` (plain booleans)
@@ -212,6 +227,26 @@
 
 ## Nice-to-Have (quality of life)
 
+- [ ] **Defensive ability icon** — show the icon of the active defensive cooldown in the center of the health bar
+  - **Personal defensives**: when a unit activates a personal defensive (e.g. Barkskin, Ice Block, Divine Shield, Survival Instincts, Blur, etc.) show the ability icon centered on their health bar
+  - **External defensives**: when an external defensive is cast ON another party member (e.g. Blessing of Sacrifice, Rallying Cry, Pain Suppression, Guardian Angel, Life Cocoon, etc.) show the icon on the target's frame
+  - Icon size: approximately the same as the class icon (20×20 or 22×22)
+  - Positioned in the center of the health bar, overlaid on top
+  - Detection via UNIT_AURA: scan buffs for known defensive spell IDs; show the icon of the most recently applied one (or highest priority)
+  - Priority: external defensives > personal defensives (external ones matter more for healer awareness)
+  - Auto-hide when the buff expires (use expiration time from aura data to drive visibility)
+  - Key spells to track:
+    - **Paladins**: Blessing of Sacrifice (6940), Divine Shield (642)
+    - **Druids**: Barkskin (22812), Survival Instincts (61336)
+    - **Priests**: Pain Suppression (33206), Guardian Spirit (47788)
+    - **Monks**: Life Cocoon (116849)
+    - **Warriors**: Rallying Cry (97462)
+    - **Mages**: Ice Block (45438)
+    - **Demon Hunters**: Blur (198589)
+    - **Death Knights**: Anti-Magic Shell (48707)
+    - **Evokers**: Emerald Boon (370960), Rescue (370665)
+  - Research needed: confirm which auras are visible via C_UnitAuras on other party members (private vs public aura rules)
+
 - [x] **Incoming resurrection icon** — green icon (bottom-left) when a res is incoming
   - `UnitHasIncomingResurrection` + `INCOMING_RESURRECT_CHANGED`
 
@@ -226,14 +261,14 @@
 
 - [x] **Leader icon** — crown above class icon (already implemented via leaderCrown frame)
 
-- [ ] **Vehicle icon** — icon when unit is in a vehicle
+- [x] **Vehicle icon** — icon when unit is in a vehicle
   - `UnitHasVehicleUI(unit)` → bool, event `UNIT_ENTERED_VEHICLE` / `UNIT_EXITED_VEHICLE`
 
 - [ ] **Health fade** *(disabled — caused permanent grey-out)*
   - Whole-frame alpha reduction at full HP was too visible and confusing
   - Better approach: dim only the health bar backdrop or border, not the whole frame
 
-- [ ] **HP text: show absorb% alongside health%** — e.g. "74% + 13%" with absorb in yellow
+- [x] **HP text: show absorb% alongside health%** — e.g. "74% + 13%" with absorb in yellow
   - Absorb% = `UnitGetTotalAbsorbs(unit)` / `UnitHealthMax(unit)` — both secret numbers,
     so compute the ratio on the C side or use a percentage bar trick
   - Simplest approach: show the absorb bar's fill percentage using a cached value updated
@@ -254,18 +289,6 @@
   - Duration format is fine (Xh/Xm/s) — just needs to be bigger/more visible
   - Should be consistent for both buff and debuff icons
 
-- [ ] **Dispel priority + class-aware filtering**
-  - Dispellable debuffs should always show first in the debuff slots (sort by dispellability)
-  - Only highlight dispellable debuffs that the player's class can actually remove:
-    - Priests: Magic, Disease
-    - Druids: Magic, Curse, Poison
-    - Paladins: Magic, Poison, Disease
-    - Shamans: Magic, Curse, Poison  (Purge on enemies)
-    - Monks: Magic, Poison, Disease (Detox)
-    - Mages: Curse (Remove Curse)
-    - Warlocks: Magic on self only (Singe Magic via Imp)
-  - Border color should only activate for dispel types the player can remove
-  - The debuff's dispel highlight should be more prominent (maybe a glow or thicker colored border on the icon itself, not just the frame border)
 
 ---
 

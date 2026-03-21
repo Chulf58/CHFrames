@@ -155,6 +155,9 @@ function CHDPadParty.BuildUnitFrame(unit)
     hpText:SetJustifyH("RIGHT")
     hpText:SetTextColor(1, 1, 1, 1)
     f.hpText = hpText
+    -- Absorb percent cache (plain integer, 0 = no absorb).
+    -- Updated by UpdateAbsorbs; read by UpdateFrame to compose hpText suffix.
+    f._absorbPct = 0
 
     -- Role icon row (below player name, slots grow left to right).
     -- Slot 1 = LFG role (TANK/HEALER/DAMAGER). Extra slots reserved for future use (MT, MA, etc.).
@@ -376,6 +379,22 @@ function CHDPadParty.BuildUnitFrame(unit)
     rezIcon.tex = rezTex
     rezIcon:Hide()
     f.rezIcon = rezIcon
+
+    -- Vehicle indicator (14x14, bottom-left slot 2, x=22 = 4+14+4).
+    -- Shown when UnitHasVehicleUI(unit) is true.
+    -- Frame level +6: same as rezIcon — different x-position, no z-conflict.
+    local vehicleIcon = CreateFrame("Frame", nil, f, "BackdropTemplate")
+    vehicleIcon:SetSize(14, 14)
+    vehicleIcon:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 22, 4)
+    vehicleIcon:SetFrameLevel(f:GetFrameLevel() + 6)
+    vehicleIcon:SetBackdrop({ bgFile = "Interface\\Tooltips\\UI-Tooltip-Background" })
+    vehicleIcon:SetBackdropColor(0.0, 0.4, 0.8, 0.9)
+    local vehicleTex = vehicleIcon:CreateTexture(nil, "ARTWORK")
+    vehicleTex:SetAllPoints(vehicleIcon)
+    vehicleTex:SetTexture("Interface\\Minimap\\Vehicle-Icon")
+    vehicleIcon.tex = vehicleTex
+    vehicleIcon:Hide()
+    f.vehicleIcon = vehicleIcon
 
     -- Raid target marker (20×20, top-right inside health bar area).
     -- Texture: UI-RaidTargetingIcons, 4×2 grid of markers.
