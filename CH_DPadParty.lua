@@ -130,16 +130,16 @@ end
 -- SetPoint offsets: CENTER of each unit frame relative to root CENTER
 -- Layout mirrors a numpad: party1=Num8(top), party2=Num4(left),
 -- party3=Num6(right), party4=Num2(bottom), player=below Num2
--- Spacing recalculated for 74px frame height (37px half-height) with 8px gaps.
--- Adjacent slot spacing: half-height(37) + gap(8) + half-height(37) = 82.
--- Player offset: 2 × 82 = 164.
+-- Spacing recalculated for 78px frame height (39px half-height) with 8px gaps.
+-- Adjacent slot spacing: half-height(39) + gap(8) + half-height(39) = 86.
+-- Player offset: 2 × 86 = 172.
 -- Horizontal: frame width 200px, half-width(100) + gap(4) = 104 (unchanged).
 local OFFSETS = {
-    party1 = {   0,   82 },
+    party1 = {   0,   86 },
     party2 = { -104,   0 },
     party3 = {  104,   0 },
-    party4 = {   0,  -82 },
-    player = {   0, -164 },
+    party4 = {   0,  -86 },
+    player = {   0, -172 },
 }
 
 -- Test mode fake data

@@ -50,7 +50,7 @@ function CHDPadParty.BuildUnitFrame(unit)
 
     -- Outer frame parented to root
     local f = CreateFrame("Frame", "CHDPadPartyFrame_" .. unit, root, "BackdropTemplate")
-    f:SetSize(200, 74)
+    f:SetSize(200, 78)
     f.unit = unit
 
     -- Drag is handled by secureBtn (not f) because secureBtn sits at frame level 100
@@ -247,13 +247,13 @@ function CHDPadParty.BuildUnitFrame(unit)
     overlay.label = overlayText
     f.overlay = overlay
 
-    -- Buff icons (3 slots, 16x16) — left side of the aura row, 46px below top.
+    -- Buff icons (3 slots, 20x20) — left side of the aura row, 54px below top.
     -- Buffs grow left→right starting from the left edge.
     f.buffIcons = {}
     for i = 1, 3 do
         local icon = CreateFrame("Frame", nil, f, "BackdropTemplate")
-        icon:SetSize(16, 16)
-        icon:SetPoint("TOPLEFT", f, "TOPLEFT", 4 + (i - 1) * 18, -54)
+        icon:SetSize(20, 20)
+        icon:SetPoint("TOPLEFT", f, "TOPLEFT", 4 + (i - 1) * 22, -54)
         icon:SetBackdrop({ bgFile = "Interface\\Tooltips\\UI-Tooltip-Background" })
         icon:SetBackdropColor(0, 0, 0, 0.8)
         local tex = icon:CreateTexture(nil, "ARTWORK")
@@ -275,7 +275,7 @@ function CHDPadParty.BuildUnitFrame(unit)
         icon.count = count
         -- Timer text (top-left, tiny)
         local timer = icon:CreateFontString(nil, "OVERLAY")
-        timer:SetFont("Fonts\\FRIZQT__.TTF", 7, "OUTLINE")
+        timer:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE")
         timer:SetPoint("TOPLEFT", icon, "TOPLEFT", 1, -1)
         timer:SetTextColor(1, 1, 0.6, 1)
         timer:SetText("")
@@ -284,13 +284,13 @@ function CHDPadParty.BuildUnitFrame(unit)
         f.buffIcons[i] = icon
     end
 
-    -- Debuff icons (3 slots, 16x16) — right side of the aura row, same vertical position.
+    -- Debuff icons (3 slots, 20x20) — right side of the aura row, same vertical position.
     -- Debuffs grow right→left from the right edge (icon 1 is rightmost).
     f.debuffIcons = {}
     for i = 1, 3 do
         local icon = CreateFrame("Frame", nil, f, "BackdropTemplate")
-        icon:SetSize(16, 16)
-        icon:SetPoint("TOPRIGHT", f, "TOPRIGHT", -(4 + (i - 1) * 18), -54)
+        icon:SetSize(20, 20)
+        icon:SetPoint("TOPRIGHT", f, "TOPRIGHT", -(4 + (i - 1) * 22), -54)
         icon:SetBackdrop({ bgFile = "Interface\\Tooltips\\UI-Tooltip-Background" })
         icon:SetBackdropColor(0.4, 0, 0, 0.8)   -- reddish bg for debuffs
         local tex = icon:CreateTexture(nil, "ARTWORK")
@@ -312,7 +312,7 @@ function CHDPadParty.BuildUnitFrame(unit)
         icon.count = count
         -- Timer text (top-left, tiny)
         local timer = icon:CreateFontString(nil, "OVERLAY")
-        timer:SetFont("Fonts\\FRIZQT__.TTF", 7, "OUTLINE")
+        timer:SetFont("Fonts\\FRIZQT__.TTF", 9, "OUTLINE")
         timer:SetPoint("TOPLEFT", icon, "TOPLEFT", 1, -1)
         timer:SetTextColor(1, 0.6, 0.6, 1)
         timer:SetText("")

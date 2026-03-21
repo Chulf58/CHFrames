@@ -245,6 +245,15 @@
   - Power bar at y=-46 (directly below health bar); buffs/debuffs at y=-54
   - Frame stays 74px — pixel math worked out exactly
 
+- [x] **Buff/debuff icon size + duration readability**
+  - Current icons are 16×16 — too small to read duration text (7pt font) at a glance, especially on Steam Deck
+  - Options to investigate:
+    1. Increase icon size to 20×20 or 22×22; may require reducing slot count from 3 to 2 per side to fit
+    2. Keep 16×16 icons but increase font size for duration (e.g. 8–9pt) and move timer below the icon instead of overlapping
+    3. Show duration only on hover / only for short durations (<30s) to reduce clutter
+  - Duration format is fine (Xh/Xm/s) — just needs to be bigger/more visible
+  - Should be consistent for both buff and debuff icons
+
 - [ ] **Dispel priority + class-aware filtering**
   - Dispellable debuffs should always show first in the debuff slots (sort by dispellability)
   - Only highlight dispellable debuffs that the player's class can actually remove:
@@ -261,6 +270,14 @@
 ---
 
 ## Stretch / Future
+
+- [ ] **Multiple frame layout modes** — selectable in the settings panel
+  - **Handheld** *(current)*: D-pad/numpad layout — party1 top, party2 left, party3 right, party4 bottom, player below. Optimised for Steam Deck thumb navigation.
+  - **Side-by-side**: all 5 frames in a single horizontal row (party1–4 + player left→right). Good for widescreen/ultrawide.
+  - **Stacked**: all 5 frames in a single vertical column (party1 at top, player at bottom). Good for a vertical sidebar on the left/right edge of the screen.
+  - Implementation: swap the `OFFSETS` table based on a `CHDPadPartyDB.layout` setting (`"handheld"` / `"sidebyside"` / `"stacked"`). Settings panel gets a cycle button. Saved across sessions.
+  - Horizontal spacing for side-by-side: frame width(200) + gap(8) = 208 per slot.
+  - Vertical spacing for stacked: already known — frame height(78) + gap(8) = 86 per slot.
 
 - [ ] Player frame: show own castbar (channel + cast progress)
 - [ ] Configurable frame size and layout from settings panel
