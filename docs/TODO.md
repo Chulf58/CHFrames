@@ -247,6 +247,14 @@
   - Whole-frame alpha reduction at full HP was too visible and confusing
   - Better approach: dim only the health bar backdrop or border, not the whole frame
 
+- [ ] **HP text: show absorb% alongside health%** — e.g. "74% + 13%" with absorb in yellow
+  - Absorb% = `UnitGetTotalAbsorbs(unit)` / `UnitHealthMax(unit)` — both secret numbers,
+    so compute the ratio on the C side or use a percentage bar trick
+  - Simplest approach: show the absorb bar's fill percentage using a cached value updated
+    in `UpdateAbsorbs` → store `f._absorbPct` as a plain number, format in `UpdateFrame`
+  - HP text FontString should be at a high frame level (above absorb bar overlay)
+  - Format: `"74%"` normally, `"74% +13%"` (yellow +13%) when absorbs present
+
 - [ ] **Resource bar layout** — move power bar to directly below the health bar;
   buff/debuff icons move below the power bar
   - Currently: health bar → buffs/debuffs → power bar
