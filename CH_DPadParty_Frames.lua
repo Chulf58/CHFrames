@@ -317,6 +317,16 @@ function CHDPadParty.BuildUnitFrame(unit)
         timer:SetTextColor(1, 0.6, 0.6, 1)
         timer:SetText("")
         icon.timer = timer
+        -- G-071: debuff type badge — 10x10 corner overlay, BOTTOMRIGHT, OVERLAY sub-layer 1.
+        -- Texture: Interface\Buttons\UI-Debuff-Overlays, texcoords isolate type-color swatch.
+        -- Colored at runtime via SetVertexColor from DISPEL_COLORS table.
+        local typeOverlay = icon:CreateTexture(nil, "OVERLAY", nil, 1)
+        typeOverlay:SetSize(10, 10)
+        typeOverlay:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", -1, 1)
+        typeOverlay:SetTexture("Interface\\Buttons\\UI-Debuff-Overlays")
+        typeOverlay:SetTexCoord(0.296875, 0.5703125, 0, 0.515625)
+        typeOverlay:Hide()
+        icon.typeOverlay = typeOverlay
         icon:Hide()
         f.debuffIcons[i] = icon
     end

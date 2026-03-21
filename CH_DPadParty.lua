@@ -47,6 +47,27 @@ local BORDER_DEFAULT = { r = 0.3,  g = 0.3,  b = 0.3  }
 local BORDER_TARGET  = { r = 1.0,  g = 0.82, b = 0.0  }  -- bright gold
 local BORDER_AGGRO   = { r = 1.0,  g = 0.15, b = 0.0  }  -- bright red (threat >= 2)
 
+-- G-072: dispel capability table, keyed by classFile string (uppercase).
+-- Values are sets (table with string keys = true) of dispel type names.
+-- Warlock: Magic self-only in retail — no party dispel capability.
+-- Evoker: Cauterizing Flame dispels Magic + Bleed; Bleed has no DISPEL_COLORS entry (harmless).
+local DISPEL_BY_CLASS = {
+    PRIEST  = { Magic = true, Disease = true },
+    DRUID   = { Magic = true, Curse = true, Poison = true },
+    PALADIN = { Magic = true, Poison = true, Disease = true },
+    SHAMAN  = { Magic = true, Curse = true, Poison = true },
+    MONK    = { Magic = true, Poison = true, Disease = true },
+    MAGE    = { Curse = true },
+    EVOKER  = { Magic = true },
+}
+
+-- Populated by UpdateDispelTypes(); nil = not yet detected (treat as empty).
+local _playerDispelTypes = nil
+
+-- G-073: module-level scratch tables — wiped at the start of each debuff scan
+-- to avoid per-call allocation pressure. Never read outside UpdateAuras.
+local _debuffList = {}
+local _debuffSorted = {}
 
 -- Power type → bar color. UnitPowerType(unit) returns a numeric index (plain Lua number,
 -- safe for table lookup). 0=Mana,1=Rage,2=Focus,3=Energy,6=RunicPower,8=LunarPower,
@@ -125,6 +146,26 @@ local function UpdateRangeSpell()
         _rangeFriendlySpell = id
     end
     -- DK/DH/Hunter/Warrior/Rogue: _rangeFriendlySpell stays nil → fallback path
+end
+
+-- G-072: isDispellable — file-local; closes only over _playerDispelTypes.
+-- Hoisted here (not inside UpdateAuras) so it is allocated once, not per-call.
+local function isDispellable(aura)
+    if not _playerDispelTypes then return false end
+    local dtype = aura.dispelName or aura.dispelType
+    return dtype and _playerDispelTypes[dtype] == true
+end
+
+------------------------------------------------------------------------
+-- UpdateDispelTypes  (G-072)
+------------------------------------------------------------------------
+
+local function UpdateDispelTypes()
+    _playerDispelTypes = nil
+    local _, classFile = UnitClass("player")
+    if classFile then
+        _playerDispelTypes = DISPEL_BY_CLASS[classFile] or {}
+    end
 end
 
 -- SetPoint offsets: CENTER of each unit frame relative to root CENTER
@@ -519,12 +560,51 @@ function CHDPadParty.UpdateAuras(unit)
             if icon.timer then icon.timer:SetText("") end
         end
 
-        -- Debuffs (up to 3 shown) + scan for dispellable debuffs for border highlight
+        -- Debuffs: collect all visible debuffs, sort dispellable ones to front,
+        -- then fill the 3 display slots.
+        --
+        -- G-073: GetAuraDataByIndex returns nil for BOTH empty slots AND private
+        -- auras (hidden by server). A single nil does NOT mean the list ended —
+        -- stop only after 2 consecutive nils (ok2=true, aura=nil).
+        -- pcall failure (ok2=false) is an API error — terminate immediately.
+        --
+        -- G-074: dispelName is the documented AuraData field. Some builds may use
+        -- dispelType instead. Bridge: (aura.dispelName or aura.dispelType).
+
+        wipe(_debuffList)
+        wipe(_debuffSorted)
+        local consecutiveNils = 0
+        for i = 1, 40 do
+            local ok2, aura = pcall(C_UnitAuras.GetAuraDataByIndex, unit, i, "HARMFUL")
+            if not ok2 then
+                break  -- API error — stop scanning immediately
+            end
+            if aura then
+                consecutiveNils = 0
+                if aura.icon then
+                    _debuffList[#_debuffList + 1] = aura
+                end
+            else
+                -- ok2=true, aura=nil: private aura gap — skip, keep counting
+                consecutiveNils = consecutiveNils + 1
+                if consecutiveNils >= 2 then break end
+            end
+        end
+
+        -- Stable dispel-first partition (two-pass: Lua 5.1 sort is not stable).
+        for _, aura in ipairs(_debuffList) do
+            if isDispellable(aura) then _debuffSorted[#_debuffSorted + 1] = aura end
+        end
+        for _, aura in ipairs(_debuffList) do
+            if not isDispellable(aura) then _debuffSorted[#_debuffSorted + 1] = aura end
+        end
+
+        -- Fill display slots 1-3 from sorted list
         local dispelColor = nil
         for i = 1, 3 do
             local icon = f.debuffIcons[i]
-            local ok2, aura = pcall(C_UnitAuras.GetAuraDataByIndex, unit, i, "HARMFUL")
-            if ok2 and aura and aura.icon then
+            local aura = _debuffSorted[i]
+            if aura then
                 icon.tex:SetTexture(aura.icon)
                 local apps = aura.applications or 0
                 if apps > 1 then
@@ -533,7 +613,6 @@ function CHDPadParty.UpdateAuras(unit)
                 else
                     icon.count:Hide()
                 end
-                -- Cooldown swipe + expiry cache for timer ticker
                 local expire = aura.expirationTime
                 if icon.cooldown and expire and expire > 0 and aura.duration and aura.duration > 0 then
                     CooldownFrame_Set(icon.cooldown, expire - aura.duration, aura.duration, 1)
@@ -542,32 +621,40 @@ function CHDPadParty.UpdateAuras(unit)
                     icon.cooldown:Hide()
                 end
                 icon._expireTime = (expire and expire > 0) and expire or nil
+                -- Type badge (G-071): show colored overlay for any debuff with a type
+                local dtype = aura.dispelName or aura.dispelType
+                local dc = dtype and DISPEL_COLORS[dtype]
+                if dc and icon.typeOverlay then
+                    icon.typeOverlay:SetVertexColor(dc.r, dc.g, dc.b)
+                    icon.typeOverlay:Show()
+                elseif icon.typeOverlay then
+                    icon.typeOverlay:Hide()
+                end
                 icon:Show()
-                -- First dispellable type seen wins for the border color
-                if not dispelColor and aura.dispelType then
-                    dispelColor = DISPEL_COLORS[aura.dispelType]
+                -- Dispel border: first slot the player can actually dispel
+                if not dispelColor and isDispellable(aura) and dc then
+                    dispelColor = dc
                 end
             else
                 icon:Hide()
                 icon._expireTime = nil
                 if icon.cooldown then icon.cooldown:Hide() end
                 if icon.timer then icon.timer:SetText("") end
+                if icon.typeOverlay then icon.typeOverlay:Hide() end
             end
         end
 
-        -- If no dispellable debuff in first 3 slots, scan remaining (up to 40)
+        -- Scan overflow slots for a dispellable debuff that didn't fit (border only)
         if not dispelColor then
-            for i = 4, 40 do
-                local ok2, aura = pcall(C_UnitAuras.GetAuraDataByIndex, unit, i, "HARMFUL")
-                if not ok2 or not aura then break end
-                if aura.dispelType and DISPEL_COLORS[aura.dispelType] then
-                    dispelColor = DISPEL_COLORS[aura.dispelType]
-                    break
+            for i = 4, #_debuffSorted do
+                if isDispellable(_debuffSorted[i]) then
+                    local dtype = _debuffSorted[i].dispelName or _debuffSorted[i].dispelType
+                    local dc = dtype and DISPEL_COLORS[dtype]
+                    if dc then dispelColor = dc; break end
                 end
             end
         end
 
-        -- Store dispel color for UpdateBorder priority chain, then apply border
         f._dispelColor = dispelColor
         CHDPadParty.UpdateBorder(unit)
     end)
@@ -921,6 +1008,8 @@ function CHDPadParty.ApplyTestMode()
                     local icon = f.debuffIcons[i]
                     icon.tex:SetTexture(FAKE_DEBUFF_ICONS[i])
                     icon.count:Hide()
+                    -- G-071: hide typeOverlay so fake icons don't show stale badges
+                    if icon.typeOverlay then icon.typeOverlay:Hide() end
                     icon:Show()
                 end
 
@@ -1057,6 +1146,8 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
         -- Detect which spell to use for range probing (class/spec-specific).
         -- Re-runs on zone transition in case talents changed spell availability.
         UpdateRangeSpell()
+        -- G-072: detect which debuff types the player can dispel.
+        UpdateDispelTypes()
 
         -- G-RANGE-5: range ticker created here, not in Init — unit data unavailable
         -- at ADDON_LOADED time. Guard prevents stacking on every zone transition.
@@ -1131,8 +1222,8 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
         end
 
     elseif event == "PLAYER_TALENT_UPDATE" then
-        -- Spec changed mid-session — re-detect which range spell to use
         UpdateRangeSpell()
+        UpdateDispelTypes()
     end
 end)
 
