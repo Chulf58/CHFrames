@@ -45,6 +45,7 @@ local DISPEL_COLORS = {
 -- Default backdrop border color (restored when no dispellable debuff)
 local BORDER_DEFAULT = { r = 0.3,  g = 0.3,  b = 0.3  }
 local BORDER_TARGET  = { r = 1.0,  g = 0.82, b = 0.0  }  -- bright gold
+local BORDER_AGGRO   = { r = 1.0,  g = 0.15, b = 0.0  }  -- bright red (threat >= 2)
 
 
 -- Power type → bar color. UnitPowerType(unit) returns a numeric index (plain Lua number,
@@ -376,8 +377,22 @@ function CHDPadParty.UpdateBorder(unit)
         if isTarget then f.targetRing:Show() else f.targetRing:Hide() end
     end
 
-    -- f's own border: dispel color or default (gold is handled by the ring, not f's border)
-    local c = f._dispelColor or BORDER_DEFAULT
+    -- f's own border priority: aggro red > dispel color > default grey
+    -- UnitThreatSituation: 0=no threat, 1=low, 2=pulling aggro, 3=tanking
+    local threat
+    if UnitExists(unit) then
+        local ok, t = pcall(UnitThreatSituation, unit)
+        if ok then threat = t end
+    end
+
+    local c
+    if threat and threat >= 2 then
+        c = BORDER_AGGRO
+    elseif f._dispelColor then
+        c = f._dispelColor
+    else
+        c = BORDER_DEFAULT
+    end
     f:SetBackdropBorderColor(c.r, c.g, c.b, 1)
 end
 
@@ -414,11 +429,24 @@ function CHDPadParty.UpdateAuras(unit)
                 else
                     icon.count:Hide()
                 end
+                -- Cooldown swipe + expiry cache for timer ticker
+                local expire = aura.expirationTime
+                if icon.cooldown and expire and expire > 0 then
+                    CooldownFrame_Set(icon.cooldown, expire - aura.duration, aura.duration, 1)
+                    icon.cooldown:Show()
+                elseif icon.cooldown then
+                    icon.cooldown:Hide()
+                end
+                icon._expireTime = (expire and expire > 0) and expire or nil
                 icon:Show()
             end
         end
         for i = shown + 1, 3 do
-            f.buffIcons[i]:Hide()
+            local icon = f.buffIcons[i]
+            icon:Hide()
+            icon._expireTime = nil
+            if icon.cooldown then icon.cooldown:Hide() end
+            if icon.timer then icon.timer:SetText("") end
         end
 
         -- Debuffs (up to 3 shown) + scan for dispellable debuffs for border highlight
@@ -435,6 +463,15 @@ function CHDPadParty.UpdateAuras(unit)
                 else
                     icon.count:Hide()
                 end
+                -- Cooldown swipe + expiry cache for timer ticker
+                local expire = aura.expirationTime
+                if icon.cooldown and expire and expire > 0 and aura.duration and aura.duration > 0 then
+                    CooldownFrame_Set(icon.cooldown, expire - aura.duration, aura.duration, 1)
+                    icon.cooldown:Show()
+                elseif icon.cooldown then
+                    icon.cooldown:Hide()
+                end
+                icon._expireTime = (expire and expire > 0) and expire or nil
                 icon:Show()
                 -- First dispellable type seen wins for the border color
                 if not dispelColor and aura.dispelType then
@@ -442,6 +479,9 @@ function CHDPadParty.UpdateAuras(unit)
                 end
             else
                 icon:Hide()
+                icon._expireTime = nil
+                if icon.cooldown then icon.cooldown:Hide() end
+                if icon.timer then icon.timer:SetText("") end
             end
         end
 
@@ -795,6 +835,7 @@ eventFrame:RegisterEvent("UNIT_HEAL_PREDICTION")        -- incoming heals change
 eventFrame:RegisterEvent("UNIT_DISPLAYPOWER")           -- power type changed (druid forms, etc.)
 eventFrame:RegisterEvent("UNIT_ABSORB_AMOUNT_CHANGED")  -- damage absorb shields changed
 eventFrame:RegisterEvent("UNIT_HEAL_ABSORB_AMOUNT_CHANGED") -- heal absorbs (Necrotic) changed
+eventFrame:RegisterEvent("UNIT_THREAT_SITUATION_UPDATE") -- aggro/threat state changed
 
 eventFrame:SetScript("OnEvent", function(self, event, arg1)
     if event == "ADDON_LOADED" then
@@ -882,6 +923,37 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
                 end
             end)
         end
+        -- Timer ticker: refreshes duration text on visible aura icons every second.
+        if not CHDPadParty.timerTicker then
+            CHDPadParty.timerTicker = C_Timer.NewTicker(1, function()
+                local now = GetTime()
+                for _, unit in ipairs(UNIT_SLOTS) do
+                    local f = CHDPadParty.frames[unit]
+                    if f then
+                        for _, ilist in ipairs({ f.buffIcons, f.debuffIcons }) do
+                            for _, icon in ipairs(ilist) do
+                                if icon:IsShown() and icon._expireTime and icon.timer then
+                                    local rem = icon._expireTime - now
+                                    if rem > 0 then
+                                        if rem >= 3600 then
+                                            icon.timer:SetText(math.floor(rem / 3600) .. "h")
+                                        elseif rem >= 60 then
+                                            icon.timer:SetText(math.floor(rem / 60) .. "m")
+                                        else
+                                            icon.timer:SetText(math.floor(rem))
+                                        end
+                                    else
+                                        icon.timer:SetText("")
+                                    end
+                                elseif icon.timer then
+                                    icon.timer:SetText("")
+                                end
+                            end
+                        end
+                    end
+                end
+            end)
+        end
 
     elseif event == "UNIT_HEAL_PREDICTION" then
         if UNIT_LOOKUP[arg1] then
@@ -896,6 +968,11 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
     elseif event == "UNIT_HEAL_ABSORB_AMOUNT_CHANGED" then
         if UNIT_LOOKUP[arg1] then
             CHDPadParty.UpdateAbsorbs(arg1)
+        end
+
+    elseif event == "UNIT_THREAT_SITUATION_UPDATE" then
+        if arg1 and UNIT_LOOKUP[arg1] then
+            CHDPadParty.UpdateBorder(arg1)
         end
     end
 end)

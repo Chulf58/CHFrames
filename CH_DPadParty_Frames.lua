@@ -259,11 +259,27 @@ function CHDPadParty.BuildUnitFrame(unit)
         local tex = icon:CreateTexture(nil, "ARTWORK")
         tex:SetAllPoints(icon)
         icon.tex = tex
+        -- Cooldown swipe overlay (WoW animates the clock sweep automatically)
+        local cd = CreateFrame("Cooldown", nil, icon, "CooldownFrameTemplate")
+        cd:SetAllPoints(icon)
+        cd:SetDrawEdge(false)
+        cd:SetDrawBling(false)
+        cd:SetHideCountdownNumbers(true)  -- we draw our own timer text
+        cd:Hide()
+        icon.cooldown = cd
+        -- Stack count
         local count = icon:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         count:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", 0, 0)
         count:SetTextColor(1, 1, 1, 1)
         count:Hide()
         icon.count = count
+        -- Timer text (top-left, tiny)
+        local timer = icon:CreateFontString(nil, "OVERLAY")
+        timer:SetFont("Fonts\\FRIZQT__.TTF", 7, "OUTLINE")
+        timer:SetPoint("TOPLEFT", icon, "TOPLEFT", 1, -1)
+        timer:SetTextColor(1, 1, 0.6, 1)
+        timer:SetText("")
+        icon.timer = timer
         icon:Hide()
         f.buffIcons[i] = icon
     end
@@ -280,11 +296,27 @@ function CHDPadParty.BuildUnitFrame(unit)
         local tex = icon:CreateTexture(nil, "ARTWORK")
         tex:SetAllPoints(icon)
         icon.tex = tex
+        -- Cooldown swipe overlay
+        local cd = CreateFrame("Cooldown", nil, icon, "CooldownFrameTemplate")
+        cd:SetAllPoints(icon)
+        cd:SetDrawEdge(false)
+        cd:SetDrawBling(false)
+        cd:SetHideCountdownNumbers(true)
+        cd:Hide()
+        icon.cooldown = cd
+        -- Stack count
         local count = icon:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
         count:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", 0, 0)
         count:SetTextColor(1, 0.3, 0.3, 1)
         count:Hide()
         icon.count = count
+        -- Timer text (top-left, tiny)
+        local timer = icon:CreateFontString(nil, "OVERLAY")
+        timer:SetFont("Fonts\\FRIZQT__.TTF", 7, "OUTLINE")
+        timer:SetPoint("TOPLEFT", icon, "TOPLEFT", 1, -1)
+        timer:SetTextColor(1, 0.6, 0.6, 1)
+        timer:SetText("")
+        icon.timer = timer
         icon:Hide()
         f.debuffIcons[i] = icon
     end

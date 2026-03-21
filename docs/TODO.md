@@ -2,6 +2,17 @@
 
 ## High Priority / Infrastructure
 
+- [ ] **Auto-hide default WoW party frames when this addon is enabled**
+  - Players shouldn't have to manually disable the Blizzard party frames in Interface settings
+  - **Constraint**: calling `CompactPartyFrame:Hide()` or `UnregisterAllEvents()` from insecure
+    addon code permanently taints the addon's execution context, breaking health/power updates
+  - Safe approaches to investigate:
+    1. `InterfaceOptionsFrame` / `C_CVar.SetCVar("showPartyFrames", 0)` — may exist in 12.0
+    2. `CompactRaidFrameManager_SetSetting("IsShown", false)` via `hooksecurefunc` — check taint risk
+    3. Direct CVar: `SetCVar("useCompactPartyFrames", 1)` forces the compact (raid-style) frames
+       which can then be hidden without tainting; confirm CVar name in 12.0
+    4. Ask the user to disable via Interface → Display → "Show Party Frames" as a fallback
+
 - [ ] **Frame scaling for Steam Deck / handhelds**
   - The default frame size (200×96px per unit frame) may be too small or too large depending on the device's screen resolution and UI scale
   - Add a scale setting (`CHDPadPartyDB.scale`, default `1.0`) saved across sessions
@@ -201,15 +212,13 @@
   - `UnitIsUnit(unit, "target")` on `PLAYER_TARGET_CHANGED` event
   - Swaps `edgeSize` 12→24 via `SetBackdrop` for a visibly thicker ring; re-applies bg color after swap
 
-- [ ] **Aggro / threat highlight** — red border when unit has aggro
-  - `UnitThreatSituation(unit)` returns 0–3 (3 = tanking, 2 = pulling aggro)
-  - Event: `UNIT_THREAT_SITUATION_UPDATE`
-  - Overlay on top of dispel highlight (aggro takes priority)
+- [x] **Aggro / threat highlight** — red border when unit has aggro
+  - `UnitThreatSituation(unit)` >= 2; event `UNIT_THREAT_SITUATION_UPDATE`
+  - Priority chain: aggro red > dispel color > default grey
 
-- [ ] **Buff/debuff duration timers** — countdown text on each aura icon
-  - `aura.expirationTime` from `C_UnitAuras.GetAuraDataByIndex` minus `GetTime()` = seconds left
-  - Format: `>60s` → show minutes ("2m"), `<60s` → show seconds ("14")
-  - Cooldown swipe overlay: `CooldownFrame_Set(icon.cooldown, aura.expirationTime - aura.duration, aura.duration, 1)`
+- [x] **Buff/debuff duration timers** — cooldown swipe + tiny countdown text on each aura icon
+  - `CooldownFrame_Set` drives the clock sweep; 1s ticker updates timer text
+  - Format: >=3600s → "Xh", >=60s → "Xm", <60s → seconds; `SetHideCountdownNumbers(true)` suppresses OmniCC
 
 ---
 
