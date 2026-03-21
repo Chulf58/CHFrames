@@ -50,30 +50,12 @@ function CHDPadParty.BuildUnitFrame(unit)
 
     -- Outer frame parented to root
     local f = CreateFrame("Frame", "CHDPadPartyFrame_" .. unit, root, "BackdropTemplate")
-    f:SetSize(200, 88)
+    f:SetSize(200, 74)
     f.unit = unit
 
-    -- Drag forwarding: clicking and dragging any unit frame moves the whole root
-    -- anchor when unlocked. Root:StartMoving() moves all children with it.
-    f:EnableMouse(true)
-    f:RegisterForDrag("LeftButton")
-    f:SetScript("OnDragStart", function(self)
-        if not (CHDPadPartyDB and CHDPadPartyDB.locked) then
-            CHDPadParty.root:StartMoving()
-        end
-    end)
-    f:SetScript("OnDragStop", function(self)
-        CHDPadParty.root:StopMovingOrSizing()
-        local point, _, relativePoint, x, y = CHDPadParty.root:GetPoint(1)
-        if point and x and y then
-            CHDPadPartyDB.position = {
-                point         = point,
-                relativePoint = relativePoint or "CENTER",
-                x             = x,
-                y             = y,
-            }
-        end
-    end)
+    -- Drag is handled by secureBtn (not f) because secureBtn sits at frame level 100
+    -- and intercepts all mouse input before f. Registering drag on f is ineffective.
+    -- secureBtn:RegisterForDrag / OnDragStart are non-protected scripts — safe to set.
 
     -- SecureUnitButtonTemplate enables click-to-target and [@mouseover] macros.
     -- Parented to f (not UIParent). A cross-parent anchor (secureBtn:SetAllPoints(f) where
@@ -89,6 +71,28 @@ function CHDPadParty.BuildUnitFrame(unit)
     secureBtn:SetAttribute("unit", unit)
     secureBtn:SetAttribute("*type1", "target")
     secureBtn:SetAttribute("*type2", "togglemenu")
+
+    -- Drag: secureBtn is on top (level 100) and receives all mouse input first.
+    -- Registering drag here ensures OnDragStart actually fires.
+    -- G-064: use RegisterForDrag + SetMovable to lock; never EnableMouse(false) on f.
+    secureBtn:RegisterForDrag("LeftButton")
+    secureBtn:SetScript("OnDragStart", function(self)
+        if not (CHDPadPartyDB and CHDPadPartyDB.locked) then
+            CHDPadParty.root:StartMoving()
+        end
+    end)
+    secureBtn:SetScript("OnDragStop", function(self)
+        CHDPadParty.root:StopMovingOrSizing()
+        local point, _, relativePoint, x, y = CHDPadParty.root:GetPoint(1)
+        if point and x and y then
+            CHDPadPartyDB.position = {
+                point         = point,
+                relativePoint = relativePoint or "CENTER",
+                x             = x,
+                y             = y,
+            }
+        end
+    end)
 
     f.secureBtn = secureBtn
 
@@ -160,8 +164,11 @@ function CHDPadParty.BuildUnitFrame(unit)
     f.roleIcons = {}
     for i = 1, 3 do
         local ri = CreateFrame("Frame", nil, f)
-        ri:SetSize(14, 14)
-        ri:SetPoint("TOPLEFT", f, "TOPLEFT", 52 + (i - 1) * 16, -20)
+        ri:SetSize(20, 20)
+        ri:SetPoint("TOPLEFT", f, "TOPLEFT", 52 + (i - 1) * 22, -20)
+        -- Explicit frame level above healthBar (f+1) so the StatusBar fill doesn't occlude
+        -- role icons when both siblings share the same default level.
+        ri:SetFrameLevel(f:GetFrameLevel() + 2)
         local tex = ri:CreateTexture(nil, "ARTWORK")
         tex:SetAllPoints(ri)
         tex:SetTexture("Interface\\LFGFrame\\UI-LFG-ICON-PORTRAITROLES")
@@ -240,12 +247,13 @@ function CHDPadParty.BuildUnitFrame(unit)
     overlay.label = overlayText
     f.overlay = overlay
 
-    -- Buff icon row (3 slots, 18x18, below health bar = 46px from top)
+    -- Buff icons (3 slots, 16x16) — left side of the aura row, 46px below top.
+    -- Buffs grow left→right starting from the left edge.
     f.buffIcons = {}
     for i = 1, 3 do
         local icon = CreateFrame("Frame", nil, f, "BackdropTemplate")
-        icon:SetSize(18, 18)
-        icon:SetPoint("TOPLEFT", f, "TOPLEFT", 4 + (i - 1) * 20, -46)
+        icon:SetSize(16, 16)
+        icon:SetPoint("TOPLEFT", f, "TOPLEFT", 4 + (i - 1) * 18, -46)
         icon:SetBackdrop({ bgFile = "Interface\\Tooltips\\UI-Tooltip-Background" })
         icon:SetBackdropColor(0, 0, 0, 0.8)
         local tex = icon:CreateTexture(nil, "ARTWORK")
@@ -260,12 +268,13 @@ function CHDPadParty.BuildUnitFrame(unit)
         f.buffIcons[i] = icon
     end
 
-    -- Debuff icon row (3 slots, 18x18, 2px below buff row = 66px from top)
+    -- Debuff icons (3 slots, 16x16) — right side of the aura row, same vertical position.
+    -- Debuffs grow right→left from the right edge (icon 1 is rightmost).
     f.debuffIcons = {}
     for i = 1, 3 do
         local icon = CreateFrame("Frame", nil, f, "BackdropTemplate")
-        icon:SetSize(18, 18)
-        icon:SetPoint("TOPLEFT", f, "TOPLEFT", 4 + (i - 1) * 20, -66)
+        icon:SetSize(16, 16)
+        icon:SetPoint("TOPRIGHT", f, "TOPRIGHT", -(4 + (i - 1) * 18), -46)
         icon:SetBackdrop({ bgFile = "Interface\\Tooltips\\UI-Tooltip-Background" })
         icon:SetBackdropColor(0.4, 0, 0, 0.8)   -- reddish bg for debuffs
         local tex = icon:CreateTexture(nil, "ARTWORK")
@@ -279,6 +288,19 @@ function CHDPadParty.BuildUnitFrame(unit)
         icon:Hide()
         f.debuffIcons[i] = icon
     end
+
+    -- Power / resource bar (6px, below the single aura row at y=-64)
+    -- G-057: SetMinMaxValues before SetValue.
+    -- Color and value set by UpdatePower on UNIT_POWER_UPDATE / UNIT_DISPLAYPOWER.
+    local powerBar = CreateFrame("StatusBar", nil, f)
+    powerBar:SetPoint("TOPLEFT",  f, "TOPLEFT",   4, -64)
+    powerBar:SetPoint("TOPRIGHT", f, "TOPRIGHT", -4, -64)
+    powerBar:SetHeight(6)
+    powerBar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
+    powerBar:SetStatusBarColor(0.2, 0.5, 1.0, 1)  -- default: mana blue
+    powerBar:SetMinMaxValues(0, 1)
+    powerBar:SetValue(0)
+    f.powerBar = powerBar
 
     -- Missing raid buff indicator (14x14, bottom-right corner of unit frame)
     -- Frame+Texture pattern to avoid StatusBar OVERLAY re-show bug.
@@ -297,6 +319,25 @@ function CHDPadParty.BuildUnitFrame(unit)
     missingBuff.tex = missingBuffTex
     missingBuff:Hide()
     f.missingBuffIcon = missingBuff
+
+    -- Target highlight ring: a border-only frame positioned 6px OUTSIDE f on all sides.
+    -- Wraps visually around the unit frame instead of drawing inside it.
+    -- No bgFile so the interior remains transparent — it is purely a ring.
+    -- EnableMouse(false): extends beyond f's bounds so must not intercept clicks on
+    -- neighbouring frames.  edgeSize 16 gives a visibly thick gold outline.
+    local targetRing = CreateFrame("Frame", nil, f, "BackdropTemplate")
+    targetRing:SetPoint("TOPLEFT",     f, "TOPLEFT",     -6,  6)
+    targetRing:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT",  6, -6)
+    targetRing:SetFrameLevel(f:GetFrameLevel() + 6)
+    targetRing:EnableMouse(false)
+    targetRing:SetBackdrop({
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        edgeSize = 16,
+        insets   = { left = 4, right = 4, top = 4, bottom = 4 },
+    })
+    targetRing:SetBackdropBorderColor(1, 0.82, 0, 1)
+    targetRing:Hide()
+    f.targetRing = targetRing
 
     return f
 end

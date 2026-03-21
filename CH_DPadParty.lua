@@ -43,7 +43,25 @@ local DISPEL_COLORS = {
 }
 
 -- Default backdrop border color (restored when no dispellable debuff)
-local BORDER_DEFAULT = { r = 0.3, g = 0.3, b = 0.3 }
+local BORDER_DEFAULT = { r = 0.3,  g = 0.3,  b = 0.3  }
+local BORDER_TARGET  = { r = 1.0,  g = 0.82, b = 0.0  }  -- bright gold
+
+
+-- Power type → bar color. UnitPowerType(unit) returns a numeric index (plain Lua number,
+-- safe for table lookup). 0=Mana,1=Rage,2=Focus,3=Energy,6=RunicPower,8=LunarPower,
+-- 13=Insanity,17=Fury,19=Essence. Unmapped types fall through to default.
+local POWER_COLORS = {
+    [0]  = { 0.2, 0.5,  1.0 },  -- Mana
+    [1]  = { 1.0, 0.0,  0.0 },  -- Rage
+    [2]  = { 1.0, 0.6,  0.0 },  -- Focus
+    [3]  = { 1.0, 0.9,  0.0 },  -- Energy
+    [6]  = { 0.0, 0.82, 1.0 },  -- Runic Power
+    [8]  = { 0.6, 0.8,  1.0 },  -- Lunar Power
+    [13] = { 0.4, 0.0,  0.8 },  -- Insanity
+    [17] = { 0.8, 0.0,  1.0 },  -- Fury
+    [19] = { 0.0, 1.0,  0.8 },  -- Essence
+    default = { 0.2, 0.5, 1.0 },
+}
 
 -- Raid buff lookup: player class → buff they provide to the group.
 -- Classes absent from this table have no trackable single raid buff; the
@@ -63,22 +81,25 @@ local _playerRaidBuff = nil
 -- SetPoint offsets: CENTER of each unit frame relative to root CENTER
 -- Layout mirrors a numpad: party1=Num8(top), party2=Num4(left),
 -- party3=Num6(right), party4=Num2(bottom), player=below Num2
--- Spacing recalculated for 88px frame height (44px half-height) with 8px gaps.
--- Adjacent slot spacing: half-height(44) + gap(8) + half-height(44) = 96.
--- Player offset: 2 × 96 = 192.
+-- Spacing recalculated for 74px frame height (37px half-height) with 8px gaps.
+-- Adjacent slot spacing: half-height(37) + gap(8) + half-height(37) = 82.
+-- Player offset: 2 × 82 = 164.
+-- Horizontal: frame width 200px, half-width(100) + gap(4) = 104 (unchanged).
 local OFFSETS = {
-    party1 = {   0,   96 },
+    party1 = {   0,   82 },
     party2 = { -104,   0 },
     party3 = {  104,   0 },
-    party4 = {   0,  -96 },
-    player = {   0, -192 },
+    party4 = {   0,  -82 },
+    player = {   0, -164 },
 }
 
 -- Test mode fake data
 local TEST_NAMES    = { "Thorvald", "Lirien",  "Kazmok",  "Solvara", "Drakmis" }
 local TEST_CLASSES  = { "WARRIOR",  "PALADIN", "HUNTER",  "PRIEST",  "MAGE"    }
 local TEST_ROLES    = { "TANK",     "HEALER",  "DAMAGER", "HEALER",  "DAMAGER" }
-local TEST_HP_FRACS = { 1.0, 0.74, 0.48, 0.27, 0.10 }
+local TEST_HP_FRACS    = { 1.0, 0.74, 0.48, 0.27, 0.10 }
+local TEST_POWER_TYPES = { 1,   3,   2,   0,   0   }  -- Rage, Energy, Focus, Mana, Mana
+local TEST_POWER_FRACS = { 0.6, 0.9, 0.45, 1.0, 0.3 }
 
 -- Always-loaded spell icon textures for fake auras
 local FAKE_BUFF_ICONS = {
@@ -119,9 +140,15 @@ function CHDPadParty.Init()
         CHDPadParty.frames[unit] = f
     end
 
-    -- Apply saved lock state (G-064: SetMovable, not EnableMouse)
+    -- Apply saved lock state (G-064: SetMovable + RegisterForDrag, never EnableMouse)
     if CHDPadPartyDB.locked then
         CHDPadParty.root:SetMovable(false)
+        for _, unit in ipairs(UNIT_SLOTS) do
+            local f = CHDPadParty.frames[unit]
+            if f and f.secureBtn then
+                f.secureBtn:RegisterForDrag()
+            end
+        end
     end
 
     -- Sync drag state from saved lock state.
@@ -327,10 +354,31 @@ function CHDPadParty.UpdateAll()
         CHDPadParty.UpdateFrame(unit)
         CHDPadParty.UpdateHealPrediction(unit)
         CHDPadParty.UpdateAbsorbs(unit)
+        CHDPadParty.UpdatePower(unit)
         CHDPadParty.UpdateAuras(unit)
         CHDPadParty.UpdateMissingBuff(unit)
         CHDPadParty.UpdateRange(unit)
     end
+end
+
+------------------------------------------------------------------------
+-- UpdateBorder  (target gold > dispel color > default grey)
+------------------------------------------------------------------------
+
+function CHDPadParty.UpdateBorder(unit)
+    local f = CHDPadParty.frames[unit]
+    if not f then return end
+
+    local isTarget = UnitIsUnit(unit, "target")
+
+    -- Target ring: separate frame that wraps outside f — show when targeted, hide otherwise.
+    if f.targetRing then
+        if isTarget then f.targetRing:Show() else f.targetRing:Hide() end
+    end
+
+    -- f's own border: dispel color or default (gold is handled by the ring, not f's border)
+    local c = f._dispelColor or BORDER_DEFAULT
+    f:SetBackdropBorderColor(c.r, c.g, c.b, 1)
 end
 
 ------------------------------------------------------------------------
@@ -345,11 +393,18 @@ function CHDPadParty.UpdateAuras(unit)
     if not f then return end
 
     pcall(function()
-        -- Buffs (up to 3 shown)
-        for i = 1, 3 do
-            local icon = f.buffIcons[i]
+        -- Buffs (up to 3 shown, combat-relevant only)
+        -- Skip permanent auras (duration == 0: passive, stance, taxi, flight form)
+        -- and very long buffs (> 1800s / 30 min: food, flask, well-fed, raid buffs).
+        -- Only show auras with 0 < duration <= 1800 (procs, HoTs, defensive CDs, etc.)
+        local shown = 0
+        for i = 1, 40 do
+            if shown >= 3 then break end
             local ok2, aura = pcall(C_UnitAuras.GetAuraDataByIndex, unit, i, "HELPFUL")
-            if ok2 and aura and aura.icon then
+            if not ok2 or not aura then break end
+            if aura.icon and aura.duration and aura.duration > 0 and aura.duration <= 1800 then
+                shown = shown + 1
+                local icon = f.buffIcons[shown]
                 icon.tex:SetTexture(aura.icon)
                 -- G-066: stack count is aura.applications, not aura.count
                 local apps = aura.applications or 0
@@ -360,9 +415,10 @@ function CHDPadParty.UpdateAuras(unit)
                     icon.count:Hide()
                 end
                 icon:Show()
-            else
-                icon:Hide()
             end
+        end
+        for i = shown + 1, 3 do
+            f.buffIcons[i]:Hide()
         end
 
         -- Debuffs (up to 3 shown) + scan for dispellable debuffs for border highlight
@@ -401,9 +457,9 @@ function CHDPadParty.UpdateAuras(unit)
             end
         end
 
-        -- Update frame border: dispel type color or default grey
-        local c = dispelColor or BORDER_DEFAULT
-        f:SetBackdropBorderColor(c.r, c.g, c.b, 1)
+        -- Store dispel color for UpdateBorder priority chain, then apply border
+        f._dispelColor = dispelColor
+        CHDPadParty.UpdateBorder(unit)
     end)
 end
 
@@ -456,6 +512,43 @@ function CHDPadParty.UpdateMissingBuff(unit)
             f.missingBuffIcon.tex:SetTexture(tex)
         end
         f.missingBuffIcon:Show()
+    end
+end
+
+------------------------------------------------------------------------
+-- UpdatePower
+------------------------------------------------------------------------
+
+function CHDPadParty.UpdatePower(unit)
+    if CHDPadPartyDB and CHDPadPartyDB.testMode and unit ~= "player" then return end
+    local f = CHDPadParty.frames[unit]
+    if not f or not f.powerBar then return end
+
+    local ok, err = pcall(function()
+        if not UnitExists(unit) then
+            f.powerBar:SetMinMaxValues(0, 1)
+            f.powerBar:SetValue(0)
+            return
+        end
+
+        -- UnitPowerType returns a plain Lua number — safe for table lookup
+        local powerType = UnitPowerType(unit)
+        local color = POWER_COLORS[powerType] or POWER_COLORS.default
+        f.powerBar:SetStatusBarColor(color[1], color[2], color[3], 1)
+
+        -- UnitPowerMax / UnitPower are secret numbers: pass to C functions only (G-057)
+        local maxOk, maxPow = pcall(UnitPowerMax, unit)
+        local powOk, pow    = pcall(UnitPower, unit)
+        if maxOk and maxPow and powOk and pow then
+            f.powerBar:SetMinMaxValues(0, maxPow)
+            f.powerBar:SetValue(pow)
+        else
+            f.powerBar:SetMinMaxValues(0, 1)
+            f.powerBar:SetValue(0)
+        end
+    end)
+    if not ok then
+        print("|cffff4444CH_DPadParty|r UpdatePower(" .. unit .. "): " .. tostring(err))
     end
 end
 
@@ -656,6 +749,16 @@ function CHDPadParty.ApplyTestMode()
                     icon:Show()
                 end
 
+                -- Power bar
+                if f.powerBar then
+                    local powerType = TEST_POWER_TYPES[idx] or 0
+                    local color = POWER_COLORS[powerType] or POWER_COLORS.default
+                    f.powerBar:SetStatusBarColor(color[1], color[2], color[3], 1)
+                    local pfrac = TEST_POWER_FRACS[idx] or 1.0
+                    f.powerBar:SetMinMaxValues(0, 100)
+                    f.powerBar:SetValue(pfrac * 100)
+                end
+
                 -- Missing buff indicator preview: show on slot 2 only so the layout
                 -- is visible without every frame appearing alarming in test mode.
                 if f.missingBuffIcon then
@@ -686,8 +789,10 @@ eventFrame:RegisterEvent("UNIT_HEALTH")
 eventFrame:RegisterEvent("UNIT_POWER_UPDATE")
 eventFrame:RegisterEvent("UNIT_AURA")
 eventFrame:RegisterEvent("PLAYER_FLAGS_CHANGED")
+eventFrame:RegisterEvent("PLAYER_TARGET_CHANGED")
 eventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
 eventFrame:RegisterEvent("UNIT_HEAL_PREDICTION")        -- incoming heals changed
+eventFrame:RegisterEvent("UNIT_DISPLAYPOWER")           -- power type changed (druid forms, etc.)
 eventFrame:RegisterEvent("UNIT_ABSORB_AMOUNT_CHANGED")  -- damage absorb shields changed
 eventFrame:RegisterEvent("UNIT_HEAL_ABSORB_AMOUNT_CHANGED") -- heal absorbs (Necrotic) changed
 
@@ -732,6 +837,13 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
     elseif event == "UNIT_POWER_UPDATE" then
         if UNIT_LOOKUP[arg1] then
             CHDPadParty.UpdateFrame(arg1)
+            CHDPadParty.UpdatePower(arg1)
+        end
+
+    elseif event == "UNIT_DISPLAYPOWER" then
+        -- Power type changed (druid shifting, etc.) — update bar color and value
+        if arg1 and UNIT_LOOKUP[arg1] then
+            CHDPadParty.UpdatePower(arg1)
         end
 
     elseif event == "UNIT_AURA" then
@@ -740,6 +852,12 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
         if UNIT_LOOKUP[arg1] and not (CHDPadPartyDB and CHDPadPartyDB.testMode) then
             CHDPadParty.UpdateAuras(arg1)
             CHDPadParty.UpdateMissingBuff(arg1)
+        end
+
+    elseif event == "PLAYER_TARGET_CHANGED" then
+        -- No arg1 — loop all slots to clear old target and highlight new one
+        for _, unit in ipairs(UNIT_SLOTS) do
+            CHDPadParty.UpdateBorder(unit)
         end
 
     elseif event == "PLAYER_FLAGS_CHANGED" then

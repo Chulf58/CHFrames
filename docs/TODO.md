@@ -2,7 +2,21 @@
 
 ## High Priority / Infrastructure
 
+- [ ] **Frame scaling for Steam Deck / handhelds**
+  - The default frame size (200×96px per unit frame) may be too small or too large depending on the device's screen resolution and UI scale
+  - Add a scale setting (`CHDPadPartyDB.scale`, default `1.0`) saved across sessions
+  - Apply via `CHDPadParty.root:SetScale(scale)` — scales the entire frame group at once, no per-frame changes needed
+  - Expose in the settings panel as a slider (0.5 – 2.0, step 0.05)
+  - Slash command shortcut: `/chdpad scale 1.5`
+  - Steam Deck native resolution is 1280×800; typical WoW UI scale at that resolution benefits from 1.3–1.5× scaling
+
 - [x] **Publish to Wago.io & set up automated releases**
+
+- [ ] **Automate Wago releases** — currently requires a manual click on Wago after each GitHub release
+  - Generate a Wago API token at https://addons.wago.io/account/apikeys
+  - Add as GitHub secret `WAGO_API_TOKEN` at github.com/Chulf58/CH_DPadParty/settings/secrets/actions
+  - Update `.github/workflows/release.yml` to use BigWigs packager with `WAGO_API_TOKEN`
+  - After this, tagging a commit fully automates both GitHub Release and Wago release
 
   Full workflow researched. Steps:
 
@@ -177,15 +191,15 @@
   - Combine with health fade alpha when both are implemented: `finalAlpha = baseAlpha * oorAlpha`
     so they stack rather than overwrite each other
 
-- [ ] **Resource / mana bar** — small bar showing mana, rage, energy, focus
+- [x] **Resource / mana bar** — small bar showing mana, rage, energy, focus
   - `UnitPower(unit)` + `UnitPowerMax(unit)` (secret numbers — pass to SetValue/SetMinMaxValues directly)
   - `UnitPowerType(unit)` → color (blue=mana, red=rage, yellow=energy, orange=focus, etc.)
   - Event: `UNIT_POWER_UPDATE` (already registered), `UNIT_DISPLAYPOWER` for type changes
   - Thin bar (6px) below the heal-absorb bar
 
-- [ ] **Target highlight** — glow/border when this frame's unit is your current target
+- [x] **Target highlight** — thick gold border when this frame's unit is your current target
   - `UnitIsUnit(unit, "target")` on `PLAYER_TARGET_CHANGED` event
-  - Change backdrop border to bright white or gold when targeted
+  - Swaps `edgeSize` 12→24 via `SetBackdrop` for a visibly thicker ring; re-applies bg color after swap
 
 - [ ] **Aggro / threat highlight** — red border when unit has aggro
   - `UnitThreatSituation(unit)` returns 0–3 (3 = tanking, 2 = pulling aggro)

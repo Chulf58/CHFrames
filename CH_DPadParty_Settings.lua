@@ -142,17 +142,16 @@ function CHDPadParty.BuildSettingsPanel()
             self.label:SetText("[Unlocked] Click to Lock")
         end
 
-        -- Sync drag state only. secureBtn visibility is RegisterUnitWatch's responsibility.
+        -- Sync drag state on secureBtn (the top-level mouse receiver, level 100).
+        -- G-064: RegisterForDrag on secureBtn; never EnableMouse(false) on f.
         local locked = CHDPadPartyDB.locked
         for _, u in ipairs({ "party1", "party2", "party3", "party4", "player" }) do
             local fr = CHDPadParty.frames[u]
-            if fr then
+            if fr and fr.secureBtn then
                 if locked then
-                    fr:RegisterForDrag()
-                    fr:EnableMouse(false)
+                    fr.secureBtn:RegisterForDrag()
                 else
-                    fr:RegisterForDrag("LeftButton")
-                    fr:EnableMouse(true)
+                    fr.secureBtn:RegisterForDrag("LeftButton")
                 end
             end
         end
