@@ -2,6 +2,16 @@
 
 ## High Priority / Infrastructure
 
+- [ ] **Settings panel overhaul** — current flat button layout won't scale as more options are added
+  - Replace the flat single-column panel with a tabbed or sectioned layout (e.g. General / Layout / Appearance / Auras tabs)
+  - Layout selector: convert cycle button to a proper dropdown menu (WoW `UIDropDownMenu` or a custom scrollable list)
+  - Group related settings: lock/unlock + drag under "General"; layout mode + scale under "Layout"; colors, opacity, frame size under "Appearance"; aura slot count, duration display, icon size under "Auras"
+  - Add descriptive sub-labels or tooltips for each setting (what it does, valid range)
+  - Consistent spacing system: fixed row height, section headers with separator lines
+  - The panel should grow gracefully — adding a new setting should be one line, not a layout restructuring
+  - Consider using WoW's built-in `InterfaceOptions` panel registration (`Settings.RegisterAddOnCategory`) for discoverability, alongside the minimap button shortcut
+
+
 - [x] **Auto-hide default WoW party frames when this addon is enabled**
   - Players shouldn't have to manually disable the Blizzard party frames in Interface settings
   - **Constraint**: calling `CompactPartyFrame:Hide()` or `UnregisterAllEvents()` from insecure

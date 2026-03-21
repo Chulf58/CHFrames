@@ -163,9 +163,11 @@ function CHDPadParty.BuildUnitFrame(unit)
     hpText:SetJustifyH("RIGHT")
     hpText:SetTextColor(1, 1, 1, 1)
     f.hpText = hpText
-    -- Absorb percent cache (plain integer, 0 = no absorb).
-    -- Updated by UpdateAbsorbs; read by UpdateFrame to compose hpText suffix.
-    f._absorbPct = 0
+    -- Absorb presence flag. True when damage absorbs (shields) are active.
+    -- UnitGetTotalAbsorbs and UnitHealthMax are both secret numbers in TWW —
+    -- arithmetic between them always throws, so we cannot compute a percentage.
+    -- UpdateAbsorbs sets this boolean; UpdateFrame uses it to show a "+" suffix.
+    f._hasAbsorb = false
 
     -- Role icon row (below player name, slots grow left to right).
     -- Slot 1 = LFG role (TANK/HEALER/DAMAGER). Extra slots reserved for future use (MT, MA, etc.).

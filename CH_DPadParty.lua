@@ -394,10 +394,12 @@ function CHDPadParty.UpdateFrame(unit)
         local name = UnitName(unit) or unit
         f.nameText:SetText(name)
 
-        -- HP percentage text — append gold absorb% suffix when shields are present.
-        -- |cffFFD900 = gold. f._absorbPct cached by UpdateAbsorbs (0 = none).
-        if f._absorbPct and f._absorbPct > 0 then
-            f.hpText:SetText(hpPct .. "% |cffFFD900+" .. f._absorbPct .. "%|r")
+        -- HP percentage text — append gold "+" suffix when shields are present.
+        -- f._hasAbsorb set by UpdateAbsorbs. Percentage cannot be shown: both
+        -- UnitGetTotalAbsorbs and UnitHealthMax are secret numbers in TWW, making
+        -- the division arithmetic always throw regardless of combat state.
+        if f._hasAbsorb then
+            f.hpText:SetText(hpPct .. "% |cffFFD900+|r")
         else
             f.hpText:SetText(hpPct .. "%")
         end
@@ -485,7 +487,7 @@ end
 
 function CHDPadParty.UpdateAll()
     for _, unit in ipairs(UNIT_SLOTS) do
-        CHDPadParty.UpdateAbsorbs(unit)       -- must run before UpdateFrame to populate _absorbPct
+        CHDPadParty.UpdateAbsorbs(unit)       -- must run before UpdateFrame to populate _hasAbsorb
         CHDPadParty.UpdateFrame(unit)
         CHDPadParty.UpdateHealPrediction(unit)
         CHDPadParty.UpdatePower(unit)
@@ -854,7 +856,7 @@ function CHDPadParty.UpdateAbsorbs(unit)
         if not UnitExists(unit) then
             if f.absorbBar     then f.absorbBar:SetMinMaxValues(0, 1);     f.absorbBar:SetValue(0)     end
             if f.healAbsorbBar then f.healAbsorbBar:SetMinMaxValues(0, 1); f.healAbsorbBar:SetValue(0) end
-            f._absorbPct = 0
+            f._hasAbsorb = false
             return
         end
 
@@ -865,20 +867,16 @@ function CHDPadParty.UpdateAbsorbs(unit)
             local absorb = UnitGetTotalAbsorbs(unit) or 0
             f.absorbBar:SetMinMaxValues(0, maxHP)
             f.absorbBar:SetValue(absorb)
-            -- Zero-clear: shield dropped, remove suffix immediately.
-            if absorb == 0 then
-                f._absorbPct = 0
-            else
-                -- Inner pcall: UnitGetTotalAbsorbs and UnitHealthMax both inside
-                -- so secret-number taint cannot escape into bare Lua arithmetic.
-                -- On failure: cache retains previous value (stale but safe).
-                local pctOk, pct = pcall(function()
-                    return math.floor(UnitGetTotalAbsorbs(unit) / UnitHealthMax(unit) * 100)
-                end)
-                if pctOk then
-                    f._absorbPct = pct
-                end
-            end
+            -- Detect presence for hpText "+" suffix.
+            -- UnitGetTotalAbsorbs and UnitHealthMax are BOTH secret numbers in TWW.
+            -- Arithmetic between them always throws — cannot compute a plain percentage.
+            -- We track presence only (boolean). Comparison ~= 0 works on secret numbers;
+            -- pcall guards any edge cases (e.g. nil return on fresh units).
+            local ok, present = pcall(function()
+                local a = UnitGetTotalAbsorbs(unit)
+                return a ~= nil and a ~= 0
+            end)
+            f._hasAbsorb = ok and present == true
         end
 
         -- Heal absorb (Necrotic M+ affix, Mangle, Plaguebringer, etc.)
@@ -1058,7 +1056,8 @@ function CHDPadParty.ApplyTestMode()
                 f.nameText:SetText(TEST_NAMES[idx] or ("Test" .. idx))
                 local fakePct = math.floor(frac * 100)
                 if idx == 1 then
-                    f.hpText:SetText(fakePct .. "% |cffFFD900+18%|r")
+                    -- Test mode: preview absorb "+" suffix on first frame (fake shield)
+                    f.hpText:SetText(fakePct .. "% |cffFFD900+|r")
                 else
                     f.hpText:SetText(fakePct .. "%")
                 end
@@ -1286,7 +1285,7 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
     elseif event == "UNIT_ABSORB_AMOUNT_CHANGED" then
         if UNIT_LOOKUP[arg1] then
             CHDPadParty.UpdateAbsorbs(arg1)
-            CHDPadParty.UpdateFrame(arg1)    -- refresh hpText with updated _absorbPct
+            CHDPadParty.UpdateFrame(arg1)    -- refresh hpText with updated _hasAbsorb
         end
 
     elseif event == "UNIT_HEAL_ABSORB_AMOUNT_CHANGED" then
