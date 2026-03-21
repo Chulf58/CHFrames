@@ -1,8 +1,8 @@
 ## Interface: 120001
 ## Title: CH D-Pad Party Frames
-## Notes: D-pad / numpad party frames for Steam Deck — v1.5.0
+## Notes: D-pad / numpad party frames for Steam Deck — v1.6.0
 ## Author: CHUI
-## Version: 1.5.0
+## Version: 1.6.0
 ## X-Wago-ID: BNBm1gGx
 ## SavedVariables: CHDPadPartyDB
 ## OptionalDeps: CHUI

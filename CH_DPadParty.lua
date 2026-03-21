@@ -168,20 +168,39 @@ local function UpdateDispelTypes()
     end
 end
 
--- SetPoint offsets: CENTER of each unit frame relative to root CENTER
--- Layout mirrors a numpad: party1=Num8(top), party2=Num4(left),
--- party3=Num6(right), party4=Num2(bottom), player=below Num2
--- Spacing recalculated for 78px frame height (39px half-height) with 8px gaps.
--- Adjacent slot spacing: half-height(39) + gap(8) + half-height(39) = 86.
--- Player offset: 2 × 86 = 172.
--- Horizontal: frame width 200px, half-width(100) + gap(4) = 104 (unchanged).
-local OFFSETS = {
-    party1 = {   0,   86 },
-    party2 = { -104,   0 },
-    party3 = {  104,   0 },
-    party4 = {   0,  -86 },
-    player = {   0, -172 },
+-- Layout offset tables: CENTER of each unit frame relative to root CENTER.
+-- Three modes selectable at runtime via CHDPadPartyDB.layout.
+--
+-- handheld  — D-pad/numpad (default). Vertical stride 86 (39+8+39), horizontal 104 (100+4).
+-- sidebyside — single horizontal row. Stride 208 (100+8+100) per TODO spec.
+-- stacked    — single vertical column. Same stride as handheld vertical (86).
+local LAYOUT_OFFSETS = {
+    handheld = {
+        party1 = {    0,   86 },
+        party2 = { -104,    0 },
+        party3 = {  104,    0 },
+        party4 = {    0,  -86 },
+        player = {    0, -172 },
+    },
+    sidebyside = {
+        -- Left→right: party1, party2, party3, party4, player
+        party1 = { -416, 0 },
+        party2 = { -208, 0 },
+        party3 = {    0, 0 },
+        party4 = {  208, 0 },
+        player = {  416, 0 },
+    },
+    stacked = {
+        -- Top→bottom: party1, party2, party3, party4, player
+        party1 = { 0,  172 },
+        party2 = { 0,   86 },
+        party3 = { 0,    0 },
+        party4 = { 0,  -86 },
+        player = { 0, -172 },
+    },
 }
+-- Convenience alias so Init() doesn't need a DB lookup
+local OFFSETS = LAYOUT_OFFSETS.handheld
 
 -- Test mode fake data
 local TEST_NAMES    = { "Thorvald", "Lirien",  "Kazmok",  "Solvara", "Drakmis" }
@@ -476,6 +495,26 @@ function CHDPadParty.UpdateAll()
         CHDPadParty.UpdateRez(unit)
         CHDPadParty.UpdateVehicle(unit)
         CHDPadParty.UpdateRaidMarker(unit)
+    end
+end
+
+------------------------------------------------------------------------
+-- ApplyLayout  (handheld / sidebyside / stacked)
+------------------------------------------------------------------------
+
+function CHDPadParty.ApplyLayout(layout)
+    if InCombatLockdown() then
+        print("|cff00ff00CH_DPadParty:|r Cannot change layout in combat.")
+        return
+    end
+    local offsets = LAYOUT_OFFSETS[layout] or LAYOUT_OFFSETS.handheld
+    CHDPadPartyDB.layout = layout or "handheld"
+    for unit, f in pairs(CHDPadParty.frames) do
+        local o = offsets[unit]
+        if o then
+            f:ClearAllPoints()
+            f:SetPoint("CENTER", CHDPadParty.root, "CENTER", o[1], o[2])
+        end
     end
 end
 
@@ -1124,6 +1163,7 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
         if CHDPadPartyDB.locked     == nil then CHDPadPartyDB.locked     = true  end
         if CHDPadPartyDB.minimapPos == nil then CHDPadPartyDB.minimapPos = 210   end
         if CHDPadPartyDB.scale      == nil then CHDPadPartyDB.scale      = 1.0   end
+        if CHDPadPartyDB.layout     == nil then CHDPadPartyDB.layout     = "handheld" end
         -- testMode always resets to false on load — it is a session-only preview
         -- tool, not a persistent setting. Saving it caused fake data to show on
         -- the next login even when the player is in a real party.
@@ -1131,6 +1171,10 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
         -- settingsX / settingsY default to nil (panel uses default center position)
 
         CHDPadParty.Init()
+        -- Restore saved layout (Init uses handheld by default; this re-anchors if different)
+        if CHDPadPartyDB.layout ~= "handheld" then
+            CHDPadParty.ApplyLayout(CHDPadPartyDB.layout)
+        end
 
         if CHDPadPartyDB.visible then
             CHDPadParty.root:Show()

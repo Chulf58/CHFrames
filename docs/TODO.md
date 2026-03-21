@@ -294,7 +294,7 @@
 
 ## Stretch / Future
 
-- [ ] **Multiple frame layout modes** — selectable in the settings panel
+- [x] **Multiple frame layout modes** — selectable in the settings panel
   - **Handheld** *(current)*: D-pad/numpad layout — party1 top, party2 left, party3 right, party4 bottom, player below. Optimised for Steam Deck thumb navigation.
   - **Side-by-side**: all 5 frames in a single horizontal row (party1–4 + player left→right). Good for widescreen/ultrawide.
   - **Stacked**: all 5 frames in a single vertical column (party1 at top, player at bottom). Good for a vertical sidebar on the left/right edge of the screen.

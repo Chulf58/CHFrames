@@ -42,6 +42,13 @@ end
 -- RefreshSettingsButtons
 ------------------------------------------------------------------------
 
+local LAYOUT_LABELS = {
+    handheld   = "Layout: D-Pad",
+    sidebyside = "Layout: Side-by-Side",
+    stacked    = "Layout: Stacked",
+}
+local LAYOUT_CYCLE = { "handheld", "sidebyside", "stacked" }
+
 function CHDPadParty.RefreshSettingsButtons()
     local lockBtn     = CHDPadParty.lockBtn
     local testModeBtn = CHDPadParty.testModeBtn
@@ -62,6 +69,11 @@ function CHDPadParty.RefreshSettingsButtons()
     if CHDPadParty.scaleValue and CHDPadPartyDB then
         CHDPadParty.scaleValue:SetText(string.format("%.1f", CHDPadPartyDB.scale or 1.0))
     end
+
+    if CHDPadParty.layoutBtn and CHDPadPartyDB then
+        local lbl = LAYOUT_LABELS[CHDPadPartyDB.layout] or LAYOUT_LABELS.handheld
+        CHDPadParty.layoutBtn.label:SetText(lbl)
+    end
 end
 
 ------------------------------------------------------------------------
@@ -70,7 +82,7 @@ end
 
 function CHDPadParty.BuildSettingsPanel()
     local panel = CreateFrame("Frame", "CHDPadPartySettingsPanel", UIParent, "BackdropTemplate")
-    panel:SetSize(200, 155)
+    panel:SetSize(200, 195)
     panel:SetFrameStrata("DIALOG")
     panel:SetMovable(true)
     panel:EnableMouse(true)
@@ -220,10 +232,37 @@ function CHDPadParty.BuildSettingsPanel()
         scaleValue:SetText(string.format("%.1f", CHDPadPartyDB.scale))
     end)
 
+    -- Layout cycle button (row 4, below scale controls)
+    local layoutBtn = MakeButton(panel, 180, 28)
+    layoutBtn:SetPoint("TOPLEFT", panel, "TOPLEFT", 10, -155)
+    local curLayout = (CHDPadPartyDB and CHDPadPartyDB.layout) or "handheld"
+    layoutBtn.label:SetText(LAYOUT_LABELS[curLayout] or LAYOUT_LABELS.handheld)
+
+    layoutBtn:SetScript("OnMouseUp", function(self, button)
+        if button ~= "LeftButton" then return end
+        if not CHDPadPartyDB or not CHDPadParty.root then return end
+        if InCombatLockdown() then
+            print("|cff00ff00CH_DPadParty:|r Cannot change layout in combat.")
+            return
+        end
+        -- Find current index and advance to next
+        local cur = CHDPadPartyDB.layout or "handheld"
+        local nextLayout = "handheld"
+        for i, name in ipairs(LAYOUT_CYCLE) do
+            if name == cur then
+                nextLayout = LAYOUT_CYCLE[(i % #LAYOUT_CYCLE) + 1]
+                break
+            end
+        end
+        CHDPadParty.ApplyLayout(nextLayout)
+        self.label:SetText(LAYOUT_LABELS[nextLayout] or LAYOUT_LABELS.handheld)
+    end)
+
     CHDPadParty.SettingsPanel = panel
     CHDPadParty.lockBtn       = lockBtn
     CHDPadParty.testModeBtn   = testModeBtn
     CHDPadParty.scaleValue    = scaleValue
+    CHDPadParty.layoutBtn     = layoutBtn
 
     return panel
 end
