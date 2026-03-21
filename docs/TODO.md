@@ -243,8 +243,9 @@
 - [ ] **Vehicle icon** — icon when unit is in a vehicle
   - `UnitHasVehicleUI(unit)` → bool, event `UNIT_ENTERED_VEHICLE` / `UNIT_EXITED_VEHICLE`
 
-- [x] **Health fade** — frame fades to 0.6 alpha at full health (less visual noise)
-  - Combined with OOR alpha via `ApplyCombinedAlpha`; test mode always forces 1.0
+- [ ] **Health fade** *(disabled — caused permanent grey-out)*
+  - Whole-frame alpha reduction at full HP was too visible and confusing
+  - Better approach: dim only the health bar backdrop or border, not the whole frame
 
 - [ ] **Resource bar layout** — move power bar to directly below the health bar;
   buff/debuff icons move below the power bar
