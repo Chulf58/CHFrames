@@ -2,7 +2,7 @@
 
 ## High Priority / Infrastructure
 
-- [ ] **Publish to Wago.io & set up automated releases**
+- [x] **Publish to Wago.io & set up automated releases**
 
   Full workflow researched. Steps:
 
