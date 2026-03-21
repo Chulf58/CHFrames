@@ -142,15 +142,23 @@ function CHDPadParty.BuildUnitFrame(unit)
     -- /run print(type(CreateUnitHealPredictionCalculator))
     f.healPredictCalc = CreateUnitHealPredictionCalculator and CreateUnitHealPredictionCalculator() or nil
 
+    -- Text pane: transparent frame above absorbBar/healAbsorbBar (those sit at
+    -- bar:GetFrameLevel()+1). FontStrings on bar's own OVERLAY layer are occluded
+    -- by any child frame at a higher frame level — so name/HP text must live on a
+    -- frame whose level is above all overlay StatusBars.
+    local textPane = CreateFrame("Frame", nil, bar)
+    textPane:SetAllPoints(bar)
+    textPane:SetFrameLevel(bar:GetFrameLevel() + 2)
+
     -- Name text
-    local nameText = bar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    local nameText = textPane:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     nameText:SetPoint("TOPLEFT", bar, "TOPLEFT", 4, -4)
     nameText:SetJustifyH("LEFT")
     nameText:SetTextColor(1, 1, 1, 1)
     f.nameText = nameText
 
     -- HP text
-    local hpText = bar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    local hpText = textPane:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
     hpText:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", -4, 4)
     hpText:SetJustifyH("RIGHT")
     hpText:SetTextColor(1, 1, 1, 1)

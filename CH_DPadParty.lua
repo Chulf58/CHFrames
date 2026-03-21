@@ -466,9 +466,9 @@ end
 
 function CHDPadParty.UpdateAll()
     for _, unit in ipairs(UNIT_SLOTS) do
+        CHDPadParty.UpdateAbsorbs(unit)       -- must run before UpdateFrame to populate _absorbPct
         CHDPadParty.UpdateFrame(unit)
         CHDPadParty.UpdateHealPrediction(unit)
-        CHDPadParty.UpdateAbsorbs(unit)
         CHDPadParty.UpdatePower(unit)
         CHDPadParty.UpdateAuras(unit)
         CHDPadParty.UpdateMissingBuff(unit)
@@ -1242,6 +1242,7 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
     elseif event == "UNIT_ABSORB_AMOUNT_CHANGED" then
         if UNIT_LOOKUP[arg1] then
             CHDPadParty.UpdateAbsorbs(arg1)
+            CHDPadParty.UpdateFrame(arg1)    -- refresh hpText with updated _absorbPct
         end
 
     elseif event == "UNIT_HEAL_ABSORB_AMOUNT_CHANGED" then
