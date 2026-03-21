@@ -181,12 +181,15 @@
   - Player class detected once via `UnitClassBase("player")` or `select(2, UnitClass("player"))`
   - Only show the indicator when the player is in a group (not solo) and the buff is castable at range
 
-- [ ] **Range indicator — grey out at >40 yards** *(currently disabled — API broken)*
-  - `UnitInRange` returns a secret boolean in WoW 12.0 (evaluates as false for all party members)
-  - `CheckInteractDistance` also unreliable — returns false even for nearby units
-  - Need to find a working range API: investigate `C_Spell.IsSpellInRange` with a known spell,
-    or wait for Blizzard to expose a non-secret range check
-  - Framework is in place (`_oorAlpha`, `ApplyCombinedAlpha`) — just needs the right check
+- [ ] **Range indicator — grey out at >40 yards** *(blocked by WoW 12.0 API restrictions)*
+  - All three candidate APIs are broken for non-targeted party unit tokens in WoW 12.0:
+    - `UnitInRange("party1")` → secret boolean (always evaluates false in Lua)
+    - `CheckInteractDistance("party1", 4)` → unreliable/false even when adjacent
+    - `C_Spell.IsSpellInRange(spellID, "party1")` → nil unless unit is current target/focus
+  - Blizzard intentionally restricted range APIs to prevent exploit detection by addons
+  - Only possible workaround: check range when a unit IS the current target/focus, but that
+    covers at most 1 party member at a time — not useful for a party frame addon
+  - Framework in place (`_oorAlpha`, `ApplyCombinedAlpha`) for when a solution appears
   - Grey out the entire unit frame when the party member is more than 40 yards away
   - 40 yards = standard maximum healing range (Flash Heal, Chain Heal, Healing Touch, etc.)
   - Fixed range, not class-specific — keeps it simple and consistent for all users
