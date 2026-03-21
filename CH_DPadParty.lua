@@ -121,6 +121,16 @@ local FAKE_DEBUFF_ICONS = {
 CHDPadParty.frames = CHDPadParty.frames or {}
 
 ------------------------------------------------------------------------
+-- Alpha helper  (health fade × OOR fade)
+------------------------------------------------------------------------
+
+-- Each frame caches _healthAlpha (1.0 normal, 0.6 at full HP) and
+-- _oorAlpha (1.0 in range, 0.4 OOR).  Combined product is applied once.
+local function ApplyCombinedAlpha(f)
+    f:SetAlpha((f._healthAlpha or 1.0) * (f._oorAlpha or 1.0))
+end
+
+------------------------------------------------------------------------
 -- Init
 ------------------------------------------------------------------------
 
@@ -181,6 +191,8 @@ function CHDPadParty.Init()
     -- secret number, breaking health bar updates.  It also strips events WoW uses for
     -- group-chat channel tracking, causing "not in a party" / "invalid channel" spam.
     -- Players can disable the default party frames via Interface → Display settings.
+
+    root:SetScale(CHDPadPartyDB.scale or 1.0)
 
     CHDPadParty.BuildMinimapButton()
     CHDPadParty.BuildSettingsPanel()
@@ -251,6 +263,12 @@ function CHDPadParty.UpdateFrame(unit)
             end
         end
 
+        -- Health fade: dim fully-healthy frames to reduce visual noise.
+        -- At 100% HP → 0.6 alpha; otherwise full opacity.
+        -- Combined with OOR alpha via ApplyCombinedAlpha.
+        f._healthAlpha = (hpPct >= 100) and 0.6 or 1.0
+        ApplyCombinedAlpha(f)
+
         -- Class icon (G-055: hide for disconnected/unknown class; health bar stays green always)
         local _, classFile = UnitClass(unit)
         if f.classIcon then
@@ -290,7 +308,7 @@ function CHDPadParty.UpdateFrame(unit)
             end
         end
 
-        -- Dead / ghost / offline overlay (G-058: ghost before dead)
+        -- Dead / ghost / offline / AFK overlay (G-058: ghost before dead)
         local overlayLabel = ""
         if not UnitIsConnected(unit) then
             overlayLabel = "Offline"
@@ -298,6 +316,8 @@ function CHDPadParty.UpdateFrame(unit)
             overlayLabel = "Ghost"
         elseif UnitIsDead(unit) then
             overlayLabel = "Dead"
+        elseif UnitIsAFK(unit) then
+            overlayLabel = "AFK"
         end
 
         if overlayLabel ~= "" then
@@ -359,6 +379,8 @@ function CHDPadParty.UpdateAll()
         CHDPadParty.UpdateAuras(unit)
         CHDPadParty.UpdateMissingBuff(unit)
         CHDPadParty.UpdateRange(unit)
+        CHDPadParty.UpdateRez(unit)
+        CHDPadParty.UpdateRaidMarker(unit)
     end
 end
 
@@ -712,7 +734,61 @@ function CHDPadParty.UpdateRange(unit)
     end
     -- pcall failure (unit absent, API error): leave inRange = true (assume in-range)
 
-    f:SetAlpha(inRange and 1.0 or 0.4)
+    f._oorAlpha = inRange and 1.0 or 0.4
+    ApplyCombinedAlpha(f)
+end
+
+------------------------------------------------------------------------
+-- UpdateRez  (incoming resurrection or summon indicator)
+------------------------------------------------------------------------
+
+function CHDPadParty.UpdateRez(unit)
+    if CHDPadPartyDB and CHDPadPartyDB.testMode then return end
+    local f = CHDPadParty.frames[unit]
+    if not f or not f.rezIcon then return end
+
+    local hasRez, hasSummon = false, false
+    local ok, r = pcall(UnitHasIncomingResurrection, unit)
+    if ok and r then hasRez = true end
+    if not hasRez and C_IncomingSummon then
+        local ok2, s = pcall(C_IncomingSummon.HasIncomingSummon, unit)
+        if ok2 and s then hasSummon = true end
+    end
+
+    if hasRez then
+        f.rezIcon:SetBackdropColor(0.0, 0.8, 0.2, 0.9)  -- green
+        local ok2, tex = pcall(C_Spell.GetSpellTexture, 2006)  -- Resurrection
+        if ok2 and tex then f.rezIcon.tex:SetTexture(tex) end
+        f.rezIcon:Show()
+    elseif hasSummon then
+        f.rezIcon:SetBackdropColor(0.55, 0.0, 0.82, 0.9)  -- purple
+        local ok2, tex = pcall(C_Spell.GetSpellTexture, 698)  -- Ritual of Summoning
+        if ok2 and tex then f.rezIcon.tex:SetTexture(tex) end
+        f.rezIcon:Show()
+    else
+        f.rezIcon:Hide()
+    end
+end
+
+------------------------------------------------------------------------
+-- UpdateRaidMarker
+------------------------------------------------------------------------
+
+function CHDPadParty.UpdateRaidMarker(unit)
+    if CHDPadPartyDB and CHDPadPartyDB.testMode then return end
+    local f = CHDPadParty.frames[unit]
+    if not f or not f.raidMarker then return end
+
+    local idx = GetRaidTargetIndex(unit)
+    if idx then
+        -- UI-RaidTargetingIcons: 4 columns × 2 rows, each cell 0.25 wide × 0.5 tall
+        local col = (idx - 1) % 4
+        local row = math.floor((idx - 1) / 4)
+        f.raidMarker.tex:SetTexCoord(col * 0.25, (col + 1) * 0.25, row * 0.5, (row + 1) * 0.5)
+        f.raidMarker:Show()
+    else
+        f.raidMarker:Hide()
+    end
 end
 
 ------------------------------------------------------------------------
@@ -728,6 +804,8 @@ function CHDPadParty.ApplyTestMode()
             local f = CHDPadParty.frames[unit]
             if f then
                 f:Show()
+                f._healthAlpha = 1.0
+                f._oorAlpha    = 1.0
                 f:SetAlpha(1.0)  -- G-RANGE-6: restore full alpha; ticker is suppressed in test mode
                 f.overlay:Hide()
 
@@ -836,6 +914,9 @@ eventFrame:RegisterEvent("UNIT_DISPLAYPOWER")           -- power type changed (d
 eventFrame:RegisterEvent("UNIT_ABSORB_AMOUNT_CHANGED")  -- damage absorb shields changed
 eventFrame:RegisterEvent("UNIT_HEAL_ABSORB_AMOUNT_CHANGED") -- heal absorbs (Necrotic) changed
 eventFrame:RegisterEvent("UNIT_THREAT_SITUATION_UPDATE") -- aggro/threat state changed
+eventFrame:RegisterEvent("INCOMING_RESURRECT_CHANGED")  -- incoming rez changed
+eventFrame:RegisterEvent("INCOMING_SUMMON_CHANGED")     -- incoming summon changed
+eventFrame:RegisterEvent("RAID_TARGET_UPDATE")          -- raid marker assigned/cleared
 
 eventFrame:SetScript("OnEvent", function(self, event, arg1)
     if event == "ADDON_LOADED" then
@@ -851,6 +932,7 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
         if CHDPadPartyDB.visible    == nil then CHDPadPartyDB.visible    = true  end
         if CHDPadPartyDB.locked     == nil then CHDPadPartyDB.locked     = true  end
         if CHDPadPartyDB.minimapPos == nil then CHDPadPartyDB.minimapPos = 210   end
+        if CHDPadPartyDB.scale      == nil then CHDPadPartyDB.scale      = 1.0   end
         -- testMode always resets to false on load — it is a session-only preview
         -- tool, not a persistent setting. Saving it caused fake data to show on
         -- the next login even when the player is in a real party.
@@ -974,6 +1056,17 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
         if arg1 and UNIT_LOOKUP[arg1] then
             CHDPadParty.UpdateBorder(arg1)
         end
+
+    elseif event == "INCOMING_RESURRECT_CHANGED" or event == "INCOMING_SUMMON_CHANGED" then
+        if arg1 and UNIT_LOOKUP[arg1] then
+            CHDPadParty.UpdateRez(arg1)
+        end
+
+    elseif event == "RAID_TARGET_UPDATE" then
+        -- Fires with no unit arg — refresh all frames
+        for _, unit in ipairs(UNIT_SLOTS) do
+            CHDPadParty.UpdateRaidMarker(unit)
+        end
     end
 end)
 
@@ -1016,7 +1109,18 @@ SlashCmdList["CHDPADPARTY"] = function(msg)
             if panel:IsShown() then panel:Hide() else panel:Show() end
         end
 
+    elseif cmd:sub(1, 5) == "scale" then
+        local val = tonumber(cmd:sub(7))
+        if val and val >= 0.5 and val <= 2.0 then
+            CHDPadPartyDB.scale = math.floor(val * 10 + 0.5) / 10
+            CHDPadParty.root:SetScale(CHDPadPartyDB.scale)
+            CHDPadParty.RefreshSettingsButtons()
+            print("|cff00ff00CH_DPadParty:|r Scale set to " .. CHDPadPartyDB.scale)
+        else
+            print("|cff00ff00CH_DPadParty:|r Scale must be 0.5 – 2.0  (e.g. /chdpad scale 1.5)")
+        end
+
     else
-        print("|cff00ff00CH_DPadParty:|r Usage: /chdpad [show|hide|toggle|settings]")
+        print("|cff00ff00CH_DPadParty:|r Usage: /chdpad [show|hide|toggle|settings|scale <0.5-2.0>]")
     end
 end

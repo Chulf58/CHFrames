@@ -13,13 +13,10 @@
        which can then be hidden without tainting; confirm CVar name in 12.0
     4. Ask the user to disable via Interface → Display → "Show Party Frames" as a fallback
 
-- [ ] **Frame scaling for Steam Deck / handhelds**
-  - The default frame size (200×96px per unit frame) may be too small or too large depending on the device's screen resolution and UI scale
-  - Add a scale setting (`CHDPadPartyDB.scale`, default `1.0`) saved across sessions
-  - Apply via `CHDPadParty.root:SetScale(scale)` — scales the entire frame group at once, no per-frame changes needed
-  - Expose in the settings panel as a slider (0.5 – 2.0, step 0.05)
-  - Slash command shortcut: `/chdpad scale 1.5`
-  - Steam Deck native resolution is 1280×800; typical WoW UI scale at that resolution benefits from 1.3–1.5× scaling
+- [x] **Frame scaling for Steam Deck / handhelds**
+  - `CHDPadPartyDB.scale` (default 1.0), applied via `root:SetScale()`
+  - Settings panel: Scale – / Scale + buttons (step 0.1, clamped 0.5–2.0)
+  - Slash command: `/chdpad scale 1.5`
 
 - [x] **Publish to Wago.io & set up automated releases**
 
@@ -224,29 +221,44 @@
 
 ## Nice-to-Have (quality of life)
 
-- [ ] **Incoming resurrection icon** — small icon when a res is on its way
-  - `UnitHasIncomingResurrection(unit)` → bool, event `INCOMING_RESURRECT_CHANGED`
+- [x] **Incoming resurrection icon** — green icon (bottom-left) when a res is incoming
+  - `UnitHasIncomingResurrection` + `INCOMING_RESURRECT_CHANGED`
 
-- [ ] **Summon pending icon** — icon when player has a pending summon
-  - `C_IncomingSummon.HasIncomingSummon(unit)` → bool, event `INCOMING_SUMMON_CHANGED`
+- [x] **Summon pending icon** — purple icon (same frame as rez, bottom-left) when summoned
+  - `C_IncomingSummon.HasIncomingSummon` + `INCOMING_SUMMON_CHANGED`
 
-- [ ] **Raid target marker** — show skull/X/star etc. on frame
-  - `GetRaidTargetIndex(unit)` → 1–8 or nil
-  - Texture: `"Interface\\TargetingFrame\\UI-RaidTargetingIcons"` with SetTexCoord per index
-  - Event: `RAID_TARGET_UPDATE`
+- [x] **Raid target marker** — skull/X/star shown in top-right corner of unit frame
+  - `GetRaidTargetIndex` → SetTexCoord on `UI-RaidTargetingIcons`; `RAID_TARGET_UPDATE`
 
-- [ ] **AFK icon** — icon + timer when unit is AFK
-  - `UnitIsAFK(unit)` → bool, event `CHAT_MSG_AFK` or poll on `UNIT_FLAGS`
+- [x] **AFK status** — "AFK" shown in the dead/ghost/offline overlay
+  - `UnitIsAFK`; `PLAYER_FLAGS_CHANGED` already registered
 
-- [ ] **Leader icon** — crown on group/raid leader
-  - `UnitIsGroupLeader(unit)` → bool, event `GROUP_ROSTER_UPDATE` (already registered)
+- [x] **Leader icon** — crown above class icon (already implemented via leaderCrown frame)
 
 - [ ] **Vehicle icon** — icon when unit is in a vehicle
   - `UnitHasVehicleUI(unit)` → bool, event `UNIT_ENTERED_VEHICLE` / `UNIT_EXITED_VEHICLE`
 
-- [ ] **Health fade** — frame fades toward transparent at full health (less visual noise)
-  - `UnitHealthPercent(unit, true, CurveConstants.ScaleTo100)` → fade alpha when >95%
-  - Combine with OOR alpha (multiply both, don't just overwrite)
+- [x] **Health fade** — frame fades to 0.6 alpha at full health (less visual noise)
+  - Combined with OOR alpha via `ApplyCombinedAlpha`; test mode always forces 1.0
+
+- [ ] **Resource bar layout** — move power bar to directly below the health bar;
+  buff/debuff icons move below the power bar
+  - Currently: health bar → buffs/debuffs → power bar
+  - Desired: health bar → power bar → buffs/debuffs
+  - Frame height will need recalculation
+
+- [ ] **Dispel priority + class-aware filtering**
+  - Dispellable debuffs should always show first in the debuff slots (sort by dispellability)
+  - Only highlight dispellable debuffs that the player's class can actually remove:
+    - Priests: Magic, Disease
+    - Druids: Magic, Curse, Poison
+    - Paladins: Magic, Poison, Disease
+    - Shamans: Magic, Curse, Poison  (Purge on enemies)
+    - Monks: Magic, Poison, Disease (Detox)
+    - Mages: Curse (Remove Curse)
+    - Warlocks: Magic on self only (Singe Magic via Imp)
+  - Border color should only activate for dispel types the player can remove
+  - The debuff's dispel highlight should be more prominent (maybe a glow or thicker colored border on the icon itself, not just the frame border)
 
 ---
 

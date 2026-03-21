@@ -58,6 +58,10 @@ function CHDPadParty.RefreshSettingsButtons()
     else
         testModeBtn.label:SetText("Test Mode: OFF")
     end
+
+    if CHDPadParty.scaleValue and CHDPadPartyDB then
+        CHDPadParty.scaleValue:SetText(string.format("%.1f", CHDPadPartyDB.scale or 1.0))
+    end
 end
 
 ------------------------------------------------------------------------
@@ -66,7 +70,7 @@ end
 
 function CHDPadParty.BuildSettingsPanel()
     local panel = CreateFrame("Frame", "CHDPadPartySettingsPanel", UIParent, "BackdropTemplate")
-    panel:SetSize(200, 120)
+    panel:SetSize(200, 155)
     panel:SetFrameStrata("DIALOG")
     panel:SetMovable(true)
     panel:EnableMouse(true)
@@ -181,9 +185,45 @@ function CHDPadParty.BuildSettingsPanel()
         end
     end)
 
+    -- Scale controls (row 3): label + minus + current value + plus
+    local scaleHeader = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    scaleHeader:SetPoint("TOPLEFT", panel, "TOPLEFT", 10, -100)
+    scaleHeader:SetTextColor(0.7, 0.7, 0.7, 1)
+    scaleHeader:SetText("Scale:")
+
+    local scaleValue = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+    scaleValue:SetPoint("TOPLEFT", panel, "TOPLEFT", 55, -100)
+    scaleValue:SetTextColor(1, 1, 1, 1)
+    scaleValue:SetText("1.0")
+
+    local scaleMinus = MakeButton(panel, 55, 26)
+    scaleMinus:SetPoint("TOPLEFT", panel, "TOPLEFT", 10, -118)
+    scaleMinus.label:SetText("Scale -")
+    scaleMinus:SetScript("OnMouseUp", function(self, button)
+        if button ~= "LeftButton" then return end
+        if not CHDPadPartyDB or not CHDPadParty.root then return end
+        local s = math.max(0.5, (CHDPadPartyDB.scale or 1.0) - 0.1)
+        CHDPadPartyDB.scale = math.floor(s * 10 + 0.5) / 10
+        CHDPadParty.root:SetScale(CHDPadPartyDB.scale)
+        scaleValue:SetText(string.format("%.1f", CHDPadPartyDB.scale))
+    end)
+
+    local scalePlus = MakeButton(panel, 55, 26)
+    scalePlus:SetPoint("TOPLEFT", panel, "TOPLEFT", 72, -118)
+    scalePlus.label:SetText("Scale +")
+    scalePlus:SetScript("OnMouseUp", function(self, button)
+        if button ~= "LeftButton" then return end
+        if not CHDPadPartyDB or not CHDPadParty.root then return end
+        local s = math.min(2.0, (CHDPadPartyDB.scale or 1.0) + 0.1)
+        CHDPadPartyDB.scale = math.floor(s * 10 + 0.5) / 10
+        CHDPadParty.root:SetScale(CHDPadPartyDB.scale)
+        scaleValue:SetText(string.format("%.1f", CHDPadPartyDB.scale))
+    end)
+
     CHDPadParty.SettingsPanel = panel
     CHDPadParty.lockBtn       = lockBtn
     CHDPadParty.testModeBtn   = testModeBtn
+    CHDPadParty.scaleValue    = scaleValue
 
     return panel
 end

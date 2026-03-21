@@ -352,6 +352,35 @@ function CHDPadParty.BuildUnitFrame(unit)
     missingBuff:Hide()
     f.missingBuffIcon = missingBuff
 
+    -- Incoming resurrection / summon indicator (14×14, bottom-left corner).
+    -- Reused for both: rez = green backdrop, summon = purple backdrop.
+    -- They are mutually exclusive so sharing one frame is safe.
+    local rezIcon = CreateFrame("Frame", nil, f, "BackdropTemplate")
+    rezIcon:SetSize(14, 14)
+    rezIcon:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 4, 4)
+    rezIcon:SetFrameLevel(f:GetFrameLevel() + 6)
+    rezIcon:SetBackdrop({ bgFile = "Interface\\Tooltips\\UI-Tooltip-Background" })
+    rezIcon:SetBackdropColor(0.0, 0.8, 0.2, 0.9)
+    local rezTex = rezIcon:CreateTexture(nil, "ARTWORK")
+    rezTex:SetAllPoints(rezIcon)
+    rezIcon.tex = rezTex
+    rezIcon:Hide()
+    f.rezIcon = rezIcon
+
+    -- Raid target marker (20×20, top-right inside health bar area).
+    -- Texture: UI-RaidTargetingIcons, 4×2 grid of markers.
+    -- Shown/hidden by UpdateRaidMarker on RAID_TARGET_UPDATE.
+    local raidMarker = CreateFrame("Frame", nil, f)
+    raidMarker:SetSize(20, 20)
+    raidMarker:SetPoint("TOPRIGHT", f, "TOPRIGHT", -4, -4)
+    raidMarker:SetFrameLevel(f:GetFrameLevel() + 6)
+    local raidTex = raidMarker:CreateTexture(nil, "ARTWORK")
+    raidTex:SetAllPoints(raidMarker)
+    raidTex:SetTexture("Interface\\TargetingFrame\\UI-RaidTargetingIcons")
+    raidMarker.tex = raidTex
+    raidMarker:Hide()
+    f.raidMarker = raidMarker
+
     -- Target highlight ring: a border-only frame positioned 6px OUTSIDE f on all sides.
     -- Wraps visually around the unit frame instead of drawing inside it.
     -- No bgFile so the interior remains transparent — it is purely a ring.
