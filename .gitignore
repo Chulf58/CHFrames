@@ -1,0 +1,5 @@
+# Claude Code internal files (agent definitions, local settings)
+.claude/
+
+# BigWigs packager output
+.release/
