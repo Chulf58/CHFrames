@@ -79,6 +79,50 @@ local RAID_BUFF_BY_CLASS = {
 -- nil = not yet detected; false = player class has no raid buff to give
 local _playerRaidBuff = nil
 
+-- Range probe: C_Spell.IsSpellInRange(spellID, unit) returns plain 1/0/nil
+-- (no secret values).  We detect which spell the player knows at login by
+-- testing against "player" (always in range of yourself → returns 1 if known).
+-- nil = not yet detected; false = no usable probe spell found for this class.
+local _rangeProbeSpell = nil
+
+-- Ordered by class prevalence.  40-yard spells preferred; 30-yard fallbacks
+-- for pure-melee classes that have no long-range ability.
+local RANGE_PROBE_CANDIDATES = {
+    -- Healer 40yd
+    139,    -- Renew            (Priest)
+    2061,   -- Flash Heal       (Priest)
+    774,    -- Rejuvenation     (Druid)
+    8936,   -- Regrowth         (Druid)
+    331,    -- Healing Wave     (Shaman)
+    8004,   -- Healing Surge    (Shaman)
+    116670, -- Vivify           (Monk)
+    19750,  -- Flash of Light   (Paladin)
+    82326,  -- Holy Light       (Paladin)
+    361469, -- Emerald Blossom  (Evoker)
+    -- Ranged DPS 40yd
+    75,     -- Auto Shot        (Hunter)
+    116,    -- Frostbolt        (Mage)
+    133,    -- Fireball         (Mage)
+    686,    -- Shadow Bolt      (Warlock)
+    198,    -- Shoot            (wand, any class, 35yd)
+    -- Melee-class 30yd fallbacks
+    47541,  -- Death Coil       (Death Knight)
+    57755,  -- Heroic Throw     (Warrior)
+    185123, -- Throw Glaive     (Demon Hunter)
+    114014, -- Shuriken Toss    (Rogue)
+}
+
+local function DetectRangeProbeSpell()
+    _rangeProbeSpell = false  -- assume no probe unless found
+    for _, id in ipairs(RANGE_PROBE_CANDIDATES) do
+        local ok, result = pcall(C_Spell.IsSpellInRange, id, "player")
+        if ok and result ~= nil then   -- non-nil → player knows this spell
+            _rangeProbeSpell = id
+            break
+        end
+    end
+end
+
 -- SetPoint offsets: CENTER of each unit frame relative to root CENTER
 -- Layout mirrors a numpad: party1=Num8(top), party2=Num4(left),
 -- party3=Num6(right), party4=Num2(bottom), player=below Num2
@@ -716,12 +760,17 @@ function CHDPadParty.UpdateRange(unit)
         return
     end
 
-    -- G-RANGE-4: Both UnitInRange and CheckInteractDistance return unreliable values
-    -- in WoW 12.0 (secret booleans / wrong results), greying out all party members
-    -- even when they are standing next to the player.  Range checking is disabled
-    -- until a reliable API is found.  _oorAlpha is preserved so the framework is
-    -- ready to re-enable without further refactoring.
+    -- G-RANGE-4: Use C_Spell.IsSpellInRange with the cached probe spell.
+    -- Returns plain Lua 1 (in range) / 0 (OOR) / nil (can't determine).
+    -- No secret values.  Default to in-range on any failure or missing probe.
     local inRange = true
+    if _rangeProbeSpell then
+        local ok, result = pcall(C_Spell.IsSpellInRange, _rangeProbeSpell, unit)
+        if ok and result == 0 then
+            inRange = false
+        end
+        -- result == 1 → in range; nil → indeterminate → assume in-range
+    end
 
     f._oorAlpha = inRange and 1.0 or 0.4
     ApplyCombinedAlpha(f)
@@ -985,6 +1034,10 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
         if CHDPadParty.minimapBtn then
             CHDPadParty.UpdateMinimapButtonPos()
         end
+        -- Detect which spell to use for range probing (class-specific, done once).
+        -- Re-runs on zone transition in case talents changed the spell availability.
+        DetectRangeProbeSpell()
+
         -- G-RANGE-5: range ticker created here, not in Init — unit data unavailable
         -- at ADDON_LOADED time. Guard prevents stacking on every zone transition.
         if not CHDPadParty.rangeTicker then
