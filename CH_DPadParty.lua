@@ -266,7 +266,7 @@ function CHDPadParty.UpdateFrame(unit)
         -- Health fade: dim fully-healthy frames to reduce visual noise.
         -- At 100% HP → 0.6 alpha; otherwise full opacity.
         -- Combined with OOR alpha via ApplyCombinedAlpha.
-        f._healthAlpha = (hpPct >= 100) and 0.6 or 1.0
+        f._healthAlpha = (hpPct >= 100) and 0.65 or 1.0
         ApplyCombinedAlpha(f)
 
         -- Class icon (G-055: hide for disconnected/unknown class; health bar stays green always)
@@ -716,15 +716,12 @@ function CHDPadParty.UpdateRange(unit)
         return
     end
 
-    -- G-RANGE-4: UnitInRange returns a secret boolean in WoW 12.0 that evaluates
-    -- as false in plain Lua comparisons, causing all party members to appear OOR.
-    -- CheckInteractDistance(unit, 4) returns a plain Lua boolean (~28 yd) and is
-    -- reliable.  Only mark OOR if it explicitly returns false; any error → in-range.
-    local inRange = true  -- optimistic default; avoids false greying on API failure
-    local ok, result = pcall(CheckInteractDistance, unit, 4)
-    if ok and result == false then
-        inRange = false
-    end
+    -- G-RANGE-4: Both UnitInRange and CheckInteractDistance return unreliable values
+    -- in WoW 12.0 (secret booleans / wrong results), greying out all party members
+    -- even when they are standing next to the player.  Range checking is disabled
+    -- until a reliable API is found.  _oorAlpha is preserved so the framework is
+    -- ready to re-enable without further refactoring.
+    local inRange = true
 
     f._oorAlpha = inRange and 1.0 or 0.4
     ApplyCombinedAlpha(f)
