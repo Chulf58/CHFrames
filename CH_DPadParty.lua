@@ -263,10 +263,10 @@ function CHDPadParty.UpdateFrame(unit)
             end
         end
 
-        -- Health fade: dim fully-healthy frames to reduce visual noise.
-        -- At 100% HP → 0.6 alpha; otherwise full opacity.
-        -- Combined with OOR alpha via ApplyCombinedAlpha.
-        f._healthAlpha = (hpPct >= 100) and 0.65 or 1.0
+        -- Health fade disabled: subtle alpha reduction at full HP caused frames to
+        -- appear permanently greyed out at normal health. Re-enable when a better
+        -- visual treatment is designed (e.g. border dim rather than whole-frame alpha).
+        f._healthAlpha = 1.0
         ApplyCombinedAlpha(f)
 
         -- Class icon (G-055: hide for disconnected/unknown class; health bar stays green always)
