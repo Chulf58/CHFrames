@@ -1,54 +1,54 @@
-# CH_DPadParty — Architecture
+# CHFrames — Architecture
 
 ## CH UI Package Context
 
-CH_DPadParty is part of the **CH UI** addon suite alongside **CHUI** (character sheet replacement). The two addons are intentionally separate so CH_DPadParty can be installed alone on a Steam Deck without requiring the full CHUI package.
+CHFrames is part of the **CH UI** addon suite alongside **CHUI** (character sheet replacement). The two addons are intentionally separate so CHFrames can be installed alone on a Steam Deck without requiring the full CHUI package.
 
 | Addon | Purpose | Portability |
 |---|---|---|
 | CHUI | Character sheet replacement (gear, stats, reputation, vault) | Desktop only |
-| CH_DPadParty | D-pad / numpad party frames for controller play | Standalone — Steam Deck portable |
+| CHFrames | D-pad / numpad party frames for controller play | Standalone — Steam Deck portable |
 
-CHUI is declared as `OptionalDeps: CHUI` in the TOC. CH_DPadParty must work identically whether CHUI is present or not. **Never read from or write to `CHUIDB` / `CHUIAccountDB`.** Shared conventions (naming, colors, pcall patterns) are followed for consistency, but there is no shared code.
+CHUI is declared as `OptionalDeps: CHUI` in the TOC. CHFrames must work identically whether CHUI is present or not. **Never read from or write to `CHUIDB` / `CHUIAccountDB`.** Shared conventions (naming, colors, pcall patterns) are followed for consistency, but there is no shared code.
 
 ---
 
 ## File Structure
 
 ```
-CH_DPadParty/
-├── CH_DPadParty.toc              # Manifest, load order, SavedVariables
-├── CH_DPadParty_Frames.lua       # Frame construction (root anchor + unit frames)
-├── CH_DPadParty_Minimap.lua      # Minimap button (orbit drag, auto-hide)
-├── CH_DPadParty_Settings.lua     # Settings panel (lock/unlock, test mode, show/hide)
-└── CH_DPadParty.lua              # Main module: constants, update logic, events, slash
+CHFrames/
+├── CHFrames.toc              # Manifest, load order, SavedVariables
+├── CHFrames_Frames.lua       # Frame construction (root anchor + unit frames)
+├── CHFrames_Minimap.lua      # Minimap button (orbit drag, auto-hide)
+├── CHFrames_Settings.lua     # Settings panel (lock/unlock, test mode, show/hide)
+└── CHFrames.lua              # Main module: constants, update logic, events, slash
 ```
 
 **Load order** (defined in .toc):
 ```
-CH_DPadParty_Frames.lua → CH_DPadParty_Minimap.lua → CH_DPadParty_Settings.lua → CH_DPadParty.lua
+CHFrames_Frames.lua → CHFrames_Minimap.lua → CHFrames_Settings.lua → CHFrames.lua
 ```
 
-Frames are built before the main module loads so `CHDPadParty.BuildUnitFrame()` is available when `CHDPadParty.Init()` calls it.
+Frames are built before the main module loads so `CHFrames.BuildUnitFrame()` is available when `CHFrames.Init()` calls it.
 
 ---
 
 ## Global Namespace
 
-All modules write to and read from the `CHDPadParty` table:
+All modules write to and read from the `CHFrames` table:
 
 ```lua
-CHDPadParty = CHDPadParty or {}
+CHFrames = CHFrames or {}
 ```
 
 Key references stored on the namespace:
 
 | Key | Set by | Purpose |
 |---|---|---|
-| `CHDPadParty.root` | `BuildRootFrame()` | Drag anchor; all unit frames are children |
-| `CHDPadParty.frames[unit]` | `Init()` | Unit frame refs keyed by unit string |
-| `CHDPadParty.minimapBtn` | `BuildMinimapButton()` | Minimap button frame ref |
-| `CHDPadParty.SettingsPanel` | `BuildSettingsPanel()` | Settings panel frame ref |
+| `CHFrames.root` | `BuildRootFrame()` | Drag anchor; all unit frames are children |
+| `CHFrames.frames[unit]` | `Init()` | Unit frame refs keyed by unit string |
+| `CHFrames.minimapBtn` | `BuildMinimapButton()` | Minimap button frame ref |
+| `CHFrames.SettingsPanel` | `BuildSettingsPanel()` | Settings panel frame ref |
 
 ---
 
@@ -56,14 +56,14 @@ Key references stored on the namespace:
 
 ```
 UIParent
-├── CHDPadPartyRoot (16×16 drag anchor, MEDIUM strata)
-│   ├── CHDPadPartyFrame_party1  (200×78, BackdropTemplate)
-│   ├── CHDPadPartyFrame_party2
-│   ├── CHDPadPartyFrame_party3
-│   ├── CHDPadPartyFrame_party4
-│   └── CHDPadPartyFrame_player
+├── CHFramesRoot (16×16 drag anchor, MEDIUM strata)
+│   ├── CHFramesFrame_party1  (200×78, BackdropTemplate)
+│   ├── CHFramesFrame_party2
+│   ├── CHFramesFrame_party3
+│   ├── CHFramesFrame_party4
+│   └── CHFramesFrame_player
 │
-└── CHDPadPartySecure_<unit> ×5  (SecureUnitButtonTemplate, parented to UIParent, overlays unit frame)
+└── CHFramesSecure_<unit> ×5  (SecureUnitButtonTemplate, parented to UIParent, overlays unit frame)
 ```
 
 Each unit frame contains (top to bottom):
@@ -108,10 +108,10 @@ Frame size: 200×78px (39px half-height). Root anchor is 16×16. Offsets from ro
 
 ---
 
-## SavedVariables — CHDPadPartyDB
+## SavedVariables — CHFramesDB
 
 ```lua
-CHDPadPartyDB = {
+CHFramesDB = {
     position    = { point, relativePoint, x, y },  -- root anchor position
     visible     = true,       -- root shown/hidden
     locked      = true,       -- drag locked/unlocked
@@ -131,11 +131,11 @@ CHDPadPartyDB = {
 
 ## Event Model
 
-Single event frame `CHDPadPartyEventFrame` registered in `CH_DPadParty.lua`.
+Single event frame `CHFramesEventFrame` registered in `CHFrames.lua`.
 
 | Event | Guard | Action |
 |---|---|---|
-| `ADDON_LOADED` | arg1 == "CH_DPadParty" | Init DB, build frames, restore position |
+| `ADDON_LOADED` | arg1 == "CHFrames" | Init DB, build frames, restore position |
 | `GROUP_ROSTER_UPDATE` | — | UpdateVisibility + UpdateAll |
 | `UNIT_HEALTH` | UNIT_LOOKUP[arg1] | UpdateFrame(arg1) |
 | `UNIT_POWER_UPDATE` | UNIT_LOOKUP[arg1] | UpdateFrame(arg1) |
@@ -170,7 +170,7 @@ Single event frame `CHDPadPartyEventFrame` registered in `CH_DPadParty.lua`.
 
 | Module | Owns |
 |---|---|
-| `CH_DPadParty_Frames.lua` | `BuildRootFrame()`, `BuildUnitFrame()` — frame creation only, no logic |
-| `CH_DPadParty_Minimap.lua` | `BuildMinimapButton()`, `UpdateMinimapButtonPos()` |
-| `CH_DPadParty_Settings.lua` | `BuildSettingsPanel()`, `RefreshSettingsButtons()` |
-| `CH_DPadParty.lua` | `Init()`, `UpdateFrame()`, `UpdateAuras()`, `UpdateAbsorbs()`, `UpdateAll()`, `UpdateVisibility()`, `ApplyTestMode()`, event handler, slash commands |
+| `CHFrames_Frames.lua` | `BuildRootFrame()`, `BuildUnitFrame()` — frame creation only, no logic |
+| `CHFrames_Minimap.lua` | `BuildMinimapButton()`, `UpdateMinimapButtonPos()` |
+| `CHFrames_Settings.lua` | `BuildSettingsPanel()`, `RefreshSettingsButtons()` |
+| `CHFrames.lua` | `Init()`, `UpdateFrame()`, `UpdateAuras()`, `UpdateAbsorbs()`, `UpdateAll()`, `UpdateVisibility()`, `ApplyTestMode()`, event handler, slash commands |

@@ -1,5 +1,5 @@
--- CH_DPadParty_HideBlizzard.lua
--- Hides Blizzard default party frames when CH_DPadParty is active.
+-- CHFrames_HideBlizzard.lua
+-- Hides Blizzard default party frames when CHFrames is active.
 -- Uses RegisterStateDriver (secure C-level) — NOT :Hide() or
 -- :UnregisterAllEvents(), which taint the execution context (G-CRITICAL).
 ------------------------------------------------------------------------
@@ -16,7 +16,7 @@
 
 local _blizzardFramesHidden = false
 
-local hideFrame = CreateFrame("Frame", "CHDPadPartyHideFrame", UIParent)
+local hideFrame = CreateFrame("Frame", "CHFramesHideFrame", UIParent)
 hideFrame:RegisterEvent("PLAYER_LOGIN")
 
 hideFrame:SetScript("OnEvent", function(self, event)

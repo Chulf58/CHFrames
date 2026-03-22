@@ -1,11 +1,11 @@
-# CH_DPadParty — Coding Conventions
+# CHFrames — Coding Conventions
 
 ## Namespace
 
-Global table: `CHDPadParty`. All public functions are on this table.
+Global table: `CHFrames`. All public functions are on this table.
 ```lua
-CHDPadParty = CHDPadParty or {}
-function CHDPadParty.MyFunction() ... end
+CHFrames = CHFrames or {}
+function CHFrames.MyFunction() ... end
 ```
 
 Local helpers (used only within one file) are `local function`:
@@ -17,10 +17,10 @@ local function formatHP(pct) ... end
 
 | Thing | Convention | Example |
 |---|---|---|
-| Addon table | `CHDPadParty` | `CHDPadParty.Init()` |
-| Frame globals | `CHDPadParty<Description>` | `CHDPadPartyRoot`, `CHDPadPartyFrame_party1` |
-| Secure buttons | `CHDPadPartySecure_<unit>` | `CHDPadPartySecure_party1` |
-| DB | `CHDPadPartyDB` | SavedVariables key |
+| Addon table | `CHFrames` | `CHFrames.Init()` |
+| Frame globals | `CHFrames<Description>` | `CHFramesRoot`, `CHFramesFrame_party1` |
+| Secure buttons | `CHFramesSecure_<unit>` | `CHFramesSecure_party1` |
+| DB | `CHFramesDB` | SavedVariables key |
 | Unit frame fields | Short descriptive names on `f` | `f.healthBar`, `f.nameText`, `f.buffIcons` |
 | Constants | `ALL_CAPS` | `UNIT_SLOTS`, `UNIT_LOOKUP`, `OFFSETS` |
 
@@ -32,7 +32,7 @@ local ok, err = pcall(function()
     -- update work here
 end)
 if not ok then
-    print("|cffff4444CH_DPadParty|r FunctionName(" .. unit .. "): " .. tostring(err))
+    print("|cffff4444CHFrames|r FunctionName(" .. unit .. "): " .. tostring(err))
 end
 ```
 
@@ -70,10 +70,10 @@ local hpPct = f._lastHpPct or 100
 Always initialize with `if key == nil` — never `or` for booleans:
 ```lua
 -- CORRECT
-if CHDPadPartyDB.locked == nil then CHDPadPartyDB.locked = true end
+if CHFramesDB.locked == nil then CHFramesDB.locked = true end
 
 -- WRONG — resets false to true
-CHDPadPartyDB.locked = CHDPadPartyDB.locked or true
+CHFramesDB.locked = CHFramesDB.locked or true
 ```
 
 ## G-Code Comments
@@ -97,14 +97,14 @@ New gotchas discovered during development should be added to `docs/GOTCHAS.md` w
 ## UI Style
 
 - Outer frame backdrop: `bgFile = "Interface\\Tooltips\\UI-Tooltip-Background"`, bg color `(0.05, 0.05, 0.05, 0.85)`, border `(0.3, 0.3, 0.3, 1)`
-- Dispel border colors: Magic=blue, Curse=purple, Poison=green, Disease=brown (see `DISPEL_COLORS` in CH_DPadParty.lua)
+- Dispel border colors: Magic=blue, Curse=purple, Poison=green, Disease=brown (see `DISPEL_COLORS` in CHFrames.lua)
 - Health bar colors from `RAID_CLASS_COLORS[classFile]`, white fallback for disconnected
 - Overlay text colors: dead/offline = `(0.8, 0.1, 0.1, 1)`
 - Font: `GameFontNormalSmall` throughout
 
 ## Test Mode Rules
 
-- `CHDPadPartyDB.testMode` is session-only — always `false` on ADDON_LOADED
+- `CHFramesDB.testMode` is session-only — always `false` on ADDON_LOADED
 - In test mode: party1–4 show fake data, player shows real data
-- All live update functions must guard: `if CHDPadPartyDB and CHDPadPartyDB.testMode and unit ~= "player" then return end`
+- All live update functions must guard: `if CHFramesDB and CHFramesDB.testMode and unit ~= "player" then return end`
 - `UNIT_AURA` event handler skips entirely when testMode is true

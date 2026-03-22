@@ -1,15 +1,15 @@
 ## Interface: 120001
-## Title: CH D-Pad Party Frames
+## Title: CHFrames
 ## Notes: D-pad / numpad party frames for Steam Deck — v1.7.0
 ## Author: CHUI
 ## Version: 1.7.0
 ## X-Wago-ID: BNBm1gGx
-## SavedVariables: CHDPadPartyDB
+## SavedVariables: CHFramesDB
 ## OptionalDeps: CHUI
 ## DefaultState: enabled
 
-CH_DPadParty_HideBlizzard.lua
-CH_DPadParty_Frames.lua
-CH_DPadParty_Minimap.lua
-CH_DPadParty_Settings.lua
-CH_DPadParty.lua
+CHFrames_HideBlizzard.lua
+CHFrames_Frames.lua
+CHFrames_Minimap.lua
+CHFrames_Settings.lua
+CHFrames.lua

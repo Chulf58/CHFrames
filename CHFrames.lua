@@ -1,8 +1,8 @@
--- CH_DPadParty.lua
--- Main module for CH_DPadParty — D-pad / numpad party frames for Steam Deck
+-- CHFrames.lua
+-- Main module for CHFrames — party / raid / unit frames
 ------------------------------------------------------------------------
 
-CHDPadParty = CHDPadParty or {}
+CHFrames = CHFrames or {}
 
 ------------------------------------------------------------------------
 -- Constants
@@ -180,16 +180,6 @@ end
 -- SetTexCoord args so UpdateRaidMarker never needs arithmetic on the return value.
 -- Table lookup (t[secretNum]) does NOT go through the arithmetic taint checker and works.
 -- UI-RaidTargetingIcons: 4 columns × 2 rows; col=(idx-1)%4, row=floor((idx-1)/4).
-local RAID_MARKER_COORDS = {
-    { 0,    0.25, 0,   0.5  },  -- 1: Star
-    { 0.25, 0.5,  0,   0.5  },  -- 2: Circle
-    { 0.5,  0.75, 0,   0.5  },  -- 3: Diamond
-    { 0.75, 1.0,  0,   0.5  },  -- 4: Triangle
-    { 0,    0.25, 0.5, 1.0  },  -- 5: Moon
-    { 0.25, 0.5,  0.5, 1.0  },  -- 6: Square
-    { 0.5,  0.75, 0.5, 1.0  },  -- 7: Cross/X
-    { 0.75, 1.0,  0.5, 1.0  },  -- 8: Skull
-}
 
 -- G-072: isDispellable — file-local; closes only over _playerDispelTypes.
 -- Hoisted here (not inside UpdateAuras) so it is allocated once, not per-call.
@@ -212,7 +202,7 @@ local function UpdateDispelTypes()
 end
 
 -- Layout offset tables: CENTER of each unit frame relative to root CENTER.
--- Three modes selectable at runtime via CHDPadPartyDB.layout.
+-- Three modes selectable at runtime via CHFramesDB.layout.
 --
 -- handheld  — D-pad/numpad (default). Vertical stride 86 (39+8+39), horizontal 104 (100+4).
 -- sidebyside — single horizontal row. Stride 208 (100+8+100) per TODO spec.
@@ -269,7 +259,7 @@ local FAKE_DEBUFF_ICONS = {
 -- Frame storage
 ------------------------------------------------------------------------
 
-CHDPadParty.frames = CHDPadParty.frames or {}
+CHFrames.frames = CHFrames.frames or {}
 
 ------------------------------------------------------------------------
 -- Alpha helper  (health fade × OOR fade)
@@ -285,28 +275,28 @@ end
 -- Init
 ------------------------------------------------------------------------
 
-function CHDPadParty.Init()
-    CHDPadParty.BuildRootFrame()
-    local root = CHDPadParty.root
+function CHFrames.Init()
+    CHFrames.BuildRootFrame()
+    local root = CHFrames.root
 
     -- G-054: ClearAllPoints before SetPoint on restore
-    local pos = CHDPadPartyDB.position
+    local pos = CHFramesDB.position
     root:ClearAllPoints()
     root:SetPoint(pos.point, UIParent, pos.relativePoint, pos.x, pos.y)
 
     -- Build unit frames positioned via SetPoint offsets from root
     for _, unit in ipairs(UNIT_SLOTS) do
-        local f = CHDPadParty.BuildUnitFrame(unit)
+        local f = CHFrames.BuildUnitFrame(unit)
         local ox, oy = OFFSETS[unit][1], OFFSETS[unit][2]
         f:SetPoint("CENTER", root, "CENTER", ox, oy)
-        CHDPadParty.frames[unit] = f
+        CHFrames.frames[unit] = f
     end
 
     -- Apply saved lock state (G-064: SetMovable + RegisterForDrag, never EnableMouse)
-    if CHDPadPartyDB.locked then
-        CHDPadParty.root:SetMovable(false)
+    if CHFramesDB.locked then
+        CHFrames.root:SetMovable(false)
         for _, unit in ipairs(UNIT_SLOTS) do
-            local f = CHDPadParty.frames[unit]
+            local f = CHFrames.frames[unit]
             if f and f.secureBtn then
                 f.secureBtn:RegisterForDrag()
             end
@@ -319,9 +309,9 @@ function CHDPadParty.Init()
     -- When unlocked: drag enabled. secureBtn (always shown when unit exists) still
     -- intercepts clicks, but intentional drag movements also work — both coexist fine.
     do
-        local locked = CHDPadPartyDB.locked
+        local locked = CHFramesDB.locked
         for _, unit in ipairs(UNIT_SLOTS) do
-            local fr = CHDPadParty.frames[unit]
+            local fr = CHFrames.frames[unit]
             if fr then
                 if locked then
                     fr:RegisterForDrag()
@@ -343,18 +333,18 @@ function CHDPadParty.Init()
     -- group-chat channel tracking, causing "not in a party" / "invalid channel" spam.
     -- Players can disable the default party frames via Interface → Display settings.
 
-    root:SetScale(CHDPadPartyDB.scale or 1.0)
+    root:SetScale(CHFramesDB.scale or 1.0)
 
-    CHDPadParty.BuildMinimapButton()
-    CHDPadParty.BuildSettingsPanel()
-    CHDPadParty.RefreshSettingsButtons()
+    CHFrames.BuildMinimapButton()
+    CHFrames.BuildSettingsPanel()
+    CHFrames.RefreshSettingsButtons()
 
-    CHDPadParty.UpdateAll()
-    CHDPadParty.UpdateVisibility()
+    CHFrames.UpdateAll()
+    CHFrames.UpdateVisibility()
 
     -- If test mode was saved from a previous session, repopulate fake data now
-    if CHDPadPartyDB.testMode then
-        CHDPadParty.ApplyTestMode()
+    if CHFramesDB.testMode then
+        CHFrames.ApplyTestMode()
     end
 end
 
@@ -362,12 +352,12 @@ end
 -- UpdateFrame
 ------------------------------------------------------------------------
 
-function CHDPadParty.UpdateFrame(unit)
+function CHFrames.UpdateFrame(unit)
     -- In test mode, party1-4 show fake data — skip live updates for them.
     -- The player slot always shows real character data even in test mode.
-    if CHDPadPartyDB and CHDPadPartyDB.testMode and unit ~= "player" then return end
+    if CHFramesDB and CHFramesDB.testMode and unit ~= "player" then return end
 
-    local f = CHDPadParty.frames[unit]
+    local f = CHFrames.frames[unit]
     if not f then return end
 
     local ok, err = pcall(function()
@@ -447,8 +437,10 @@ function CHDPadParty.UpdateFrame(unit)
         end
 
         -- Leader crown (above class icon)
+        -- G-079: UnitIsGroupLeader may return a secret boolean; guard with issecretvalue().
         if f.leaderCrown then
-            if UnitIsGroupLeader(unit) then
+            local isLeader = UnitIsGroupLeader(unit)
+            if not issecretvalue(isLeader) and isLeader then
                 f.leaderCrown:Show()
             else
                 f.leaderCrown:Hide()
@@ -456,14 +448,21 @@ function CHDPadParty.UpdateFrame(unit)
         end
 
         -- Dead / ghost / offline / AFK overlay (G-058: ghost before dead)
+        -- G-079: UnitIsConnected/IsGhost/IsDead/IsAFK may return secret booleans.
+        -- issecretvalue() guard prevents "boolean test on secret value" errors.
+        -- Short-circuit: the not/truthy test only executes when the value is non-secret.
+        local connected = UnitIsConnected(unit)
+        local ghost     = UnitIsGhost(unit)
+        local dead      = UnitIsDead(unit)
+        local afk       = UnitIsAFK(unit)
         local overlayLabel = ""
-        if not UnitIsConnected(unit) then
+        if not issecretvalue(connected) and not connected then
             overlayLabel = "Offline"
-        elseif UnitIsGhost(unit) then
+        elseif not issecretvalue(ghost) and ghost then
             overlayLabel = "Ghost"
-        elseif UnitIsDead(unit) then
+        elseif not issecretvalue(dead) and dead then
             overlayLabel = "Dead"
-        elseif UnitIsAFK(unit) then
+        elseif not issecretvalue(afk) and afk then
             overlayLabel = "AFK"
         end
 
@@ -476,10 +475,10 @@ function CHDPadParty.UpdateFrame(unit)
         end
 
         -- Aura icons (G-067: no-op if test mode active)
-        CHDPadParty.UpdateAuras(unit)
+        CHFrames.UpdateAuras(unit)
     end)
     if not ok then
-        print("|cffff4444CH_DPadParty|r UpdateFrame(" .. unit .. "): " .. tostring(err))
+        print("|cffff4444CHFrames|r UpdateFrame(" .. unit .. "): " .. tostring(err))
     end
 end
 
@@ -487,15 +486,15 @@ end
 -- UpdateVisibility  (G-061: hide party1-4 when in raid or solo)
 ------------------------------------------------------------------------
 
-function CHDPadParty.UpdateVisibility()
+function CHFrames.UpdateVisibility()
     -- Don't hide frames that test mode is intentionally showing
-    if CHDPadPartyDB and CHDPadPartyDB.testMode then return end
+    if CHFramesDB and CHFramesDB.testMode then return end
 
     local inRaid  = IsInRaid()
     local inGroup = IsInGroup()
 
     for _, unit in ipairs(UNIT_SLOTS) do
-        local f = CHDPadParty.frames[unit]
+        local f = CHFrames.frames[unit]
         if not f then
             -- frame not yet built; skip
         elseif unit == "player" then
@@ -517,20 +516,20 @@ end
 -- UpdateAll
 ------------------------------------------------------------------------
 
-function CHDPadParty.UpdateAll()
+function CHFrames.UpdateAll()
     for _, unit in ipairs(UNIT_SLOTS) do
-        CHDPadParty.UpdateAbsorbs(unit)       -- must run before UpdateFrame to populate _hasAbsorb
-        CHDPadParty.UpdateFrame(unit)
-        CHDPadParty.UpdateHealPrediction(unit)
-        CHDPadParty.UpdatePower(unit)
-        CHDPadParty.UpdateAuras(unit)
-        CHDPadParty.UpdateMissingBuff(unit)
-        CHDPadParty.UpdateRange(unit)
-        CHDPadParty.UpdateRez(unit)
-        CHDPadParty.UpdateVehicle(unit)
-        CHDPadParty.UpdateRaidMarker(unit)
-        CHDPadParty.UpdateDefensive(unit)
-        CHDPadParty.UpdateAtonement(unit)
+        CHFrames.UpdateAbsorbs(unit)       -- must run before UpdateFrame to populate _hasAbsorb
+        CHFrames.UpdateFrame(unit)
+        CHFrames.UpdateHealPrediction(unit)
+        CHFrames.UpdatePower(unit)
+        CHFrames.UpdateAuras(unit)
+        CHFrames.UpdateMissingBuff(unit)
+        CHFrames.UpdateRange(unit)
+        CHFrames.UpdateRez(unit)
+        CHFrames.UpdateVehicle(unit)
+        CHFrames.UpdateRaidMarker(unit)
+        CHFrames.UpdateDefensive(unit)
+        CHFrames.UpdateAtonement(unit)
     end
 end
 
@@ -538,18 +537,18 @@ end
 -- ApplyLayout  (handheld / sidebyside / stacked)
 ------------------------------------------------------------------------
 
-function CHDPadParty.ApplyLayout(layout)
+function CHFrames.ApplyLayout(layout)
     if InCombatLockdown() then
-        print("|cff00ff00CH_DPadParty:|r Cannot change layout in combat.")
+        print("|cff00ff00CHFrames:|r Cannot change layout in combat.")
         return
     end
     local offsets = LAYOUT_OFFSETS[layout] or LAYOUT_OFFSETS.handheld
-    CHDPadPartyDB.layout = layout or "handheld"
-    for unit, f in pairs(CHDPadParty.frames) do
+    CHFramesDB.layout = layout or "handheld"
+    for unit, f in pairs(CHFrames.frames) do
         local o = offsets[unit]
         if o then
             f:ClearAllPoints()
-            f:SetPoint("CENTER", CHDPadParty.root, "CENTER", o[1], o[2])
+            f:SetPoint("CENTER", CHFrames.root, "CENTER", o[1], o[2])
         end
     end
 end
@@ -558,8 +557,8 @@ end
 -- UpdateBorder  (target gold > dispel color > default grey)
 ------------------------------------------------------------------------
 
-function CHDPadParty.UpdateBorder(unit)
-    local f = CHDPadParty.frames[unit]
+function CHFrames.UpdateBorder(unit)
+    local f = CHFrames.frames[unit]
     if not f then return end
 
     local isTarget = UnitIsUnit(unit, "target")
@@ -592,11 +591,11 @@ end
 -- UpdateAuras
 ------------------------------------------------------------------------
 
-function CHDPadParty.UpdateAuras(unit)
+function CHFrames.UpdateAuras(unit)
     -- G-067: skip if test mode active — fake data owns the aura slots
-    if CHDPadPartyDB and CHDPadPartyDB.testMode then return end
+    if CHFramesDB and CHFramesDB.testMode then return end
 
-    local f = CHDPadParty.frames[unit]
+    local f = CHFrames.frames[unit]
     if not f then return end
 
     pcall(function()
@@ -737,7 +736,7 @@ function CHDPadParty.UpdateAuras(unit)
         end
 
         f._dispelColor = dispelColor
-        CHDPadParty.UpdateBorder(unit)
+        CHFrames.UpdateBorder(unit)
     end)
 end
 
@@ -745,8 +744,8 @@ end
 -- UpdateMissingBuff
 ------------------------------------------------------------------------
 
-function CHDPadParty.UpdateMissingBuff(unit)
-    local f = CHDPadParty.frames[unit]
+function CHFrames.UpdateMissingBuff(unit)
+    local f = CHFrames.frames[unit]
     if not f or not f.missingBuffIcon then return end
 
     -- Never show on the player's own frame
@@ -797,9 +796,9 @@ end
 -- UpdatePower
 ------------------------------------------------------------------------
 
-function CHDPadParty.UpdatePower(unit)
-    if CHDPadPartyDB and CHDPadPartyDB.testMode and unit ~= "player" then return end
-    local f = CHDPadParty.frames[unit]
+function CHFrames.UpdatePower(unit)
+    if CHFramesDB and CHFramesDB.testMode and unit ~= "player" then return end
+    local f = CHFrames.frames[unit]
     if not f or not f.powerBar then return end
 
     local ok, err = pcall(function()
@@ -828,7 +827,7 @@ function CHDPadParty.UpdatePower(unit)
         end
     end)
     if not ok then
-        print("|cffff4444CH_DPadParty|r UpdatePower(" .. unit .. "): " .. tostring(err))
+        print("|cffff4444CHFrames|r UpdatePower(" .. unit .. "): " .. tostring(err))
     end
 end
 
@@ -836,9 +835,9 @@ end
 -- UpdateHealPrediction
 ------------------------------------------------------------------------
 
-function CHDPadParty.UpdateHealPrediction(unit)
-    if CHDPadPartyDB and CHDPadPartyDB.testMode and unit ~= "player" then return end
-    local f = CHDPadParty.frames[unit]
+function CHFrames.UpdateHealPrediction(unit)
+    if CHFramesDB and CHFramesDB.testMode and unit ~= "player" then return end
+    local f = CHFrames.frames[unit]
     if not f or not f.healPredictBar then return end
 
     local ok, err = pcall(function()
@@ -884,7 +883,7 @@ function CHDPadParty.UpdateHealPrediction(unit)
         end
     end)
     if not ok then
-        print("|cffff4444CH_DPadParty|r UpdateHealPrediction(" .. unit .. "): " .. tostring(err))
+        print("|cffff4444CHFrames|r UpdateHealPrediction(" .. unit .. "): " .. tostring(err))
     end
 end
 
@@ -892,9 +891,9 @@ end
 -- UpdateAbsorbs
 ------------------------------------------------------------------------
 
-function CHDPadParty.UpdateAbsorbs(unit)
-    if CHDPadPartyDB and CHDPadPartyDB.testMode and unit ~= "player" then return end
-    local f = CHDPadParty.frames[unit]
+function CHFrames.UpdateAbsorbs(unit)
+    if CHFramesDB and CHFramesDB.testMode and unit ~= "player" then return end
+    local f = CHFrames.frames[unit]
     if not f then return end
 
     pcall(function()
@@ -928,11 +927,11 @@ end
 -- UpdateRange
 ------------------------------------------------------------------------
 
-function CHDPadParty.UpdateRange(unit)
+function CHFrames.UpdateRange(unit)
     -- G-RANGE-1: skip in test mode — fake frames always show at full alpha
-    if CHDPadPartyDB and CHDPadPartyDB.testMode then return end
+    if CHFramesDB and CHFramesDB.testMode then return end
 
-    local f = CHDPadParty.frames[unit]
+    local f = CHFrames.frames[unit]
     if not f then return end
 
     -- G-RANGE-2: skip if frame not shown — avoids wasted API calls
@@ -980,9 +979,9 @@ end
 -- UpdateRez  (incoming resurrection or summon indicator)
 ------------------------------------------------------------------------
 
-function CHDPadParty.UpdateRez(unit)
-    if CHDPadPartyDB and CHDPadPartyDB.testMode then return end
-    local f = CHDPadParty.frames[unit]
+function CHFrames.UpdateRez(unit)
+    if CHFramesDB and CHFramesDB.testMode then return end
+    local f = CHFrames.frames[unit]
     if not f or not f.rezIcon then return end
 
     local hasRez, hasSummon = false, false
@@ -1012,9 +1011,9 @@ end
 -- UpdateVehicle
 ------------------------------------------------------------------------
 
-function CHDPadParty.UpdateVehicle(unit)
-    if CHDPadPartyDB and CHDPadPartyDB.testMode then return end
-    local f = CHDPadParty.frames[unit]
+function CHFrames.UpdateVehicle(unit)
+    if CHFramesDB and CHFramesDB.testMode then return end
+    local f = CHFrames.frames[unit]
     if not f or not f.vehicleIcon then return end
     local ok, result = pcall(UnitHasVehicleUI, unit)
     if ok and result then
@@ -1028,17 +1027,16 @@ end
 -- UpdateRaidMarker
 ------------------------------------------------------------------------
 
-function CHDPadParty.UpdateRaidMarker(unit)
-    if CHDPadPartyDB and CHDPadPartyDB.testMode then return end
-    local f = CHDPadParty.frames[unit]
+function CHFrames.UpdateRaidMarker(unit)
+    if CHFramesDB and CHFramesDB.testMode then return end
+    local f = CHFrames.frames[unit]
     if not f or not f.raidMarker then return end
 
-    -- G-077: GetRaidTargetIndex returns a tainted secret number in some contexts.
-    -- Table lookup avoids all arithmetic on idx — see RAID_MARKER_COORDS comment above.
+    -- G-077: GetRaidTargetIndex returns a secret number — cannot use as table index.
+    -- SetRaidTargetIconTexture is a C-side function that accepts the secret value directly.
     local idx = GetRaidTargetIndex(unit)
-    local coords = idx and RAID_MARKER_COORDS[idx]
-    if coords then
-        f.raidMarker.tex:SetTexCoord(coords[1], coords[2], coords[3], coords[4])
+    if idx then
+        SetRaidTargetIconTexture(f.raidMarker.tex, idx)
         f.raidMarker:Show()
     else
         f.raidMarker:Hide()
@@ -1062,7 +1060,7 @@ local function UpdateDiscSpec()
     -- When spec changes, hide all atonement icons immediately.
     if not _isDiscPriest then
         for _, unit in ipairs(UNIT_SLOTS) do
-            local f = CHDPadParty.frames[unit]
+            local f = CHFrames.frames[unit]
             if f and f.atonementIcon then
                 f.atonementIcon:Hide()
             end
@@ -1074,10 +1072,10 @@ end
 -- Atonement (194384) is active. Uses GetAuraDataBySpellName for O(1) lookup (no loop).
 -- expirationTime - GetTime() is safe: Atonement is a whitelisted public aura; both
 -- values are plain numbers (confirmed by DandersFrames AuraDesigner research).
-function CHDPadParty.UpdateAtonement(unit)
+function CHFrames.UpdateAtonement(unit)
     if not _isDiscPriest then return end
-    if CHDPadPartyDB and CHDPadPartyDB.testMode then return end
-    local f = CHDPadParty.frames[unit]
+    if CHFramesDB and CHFramesDB.testMode then return end
+    local f = CHFrames.frames[unit]
     if not f or not f.atonementIcon then return end
 
     pcall(function()
@@ -1113,9 +1111,9 @@ end
 -- UpdateDefensive
 ------------------------------------------------------------------------
 
-function CHDPadParty.UpdateDefensive(unit)
-    if CHDPadPartyDB and CHDPadPartyDB.testMode then return end
-    local f = CHDPadParty.frames[unit]
+function CHFrames.UpdateDefensive(unit)
+    if CHFramesDB and CHFramesDB.testMode then return end
+    local f = CHFrames.frames[unit]
     if not f or not f.defIcon then return end
 
     pcall(function()
@@ -1164,13 +1162,13 @@ end
 -- ApplyTestMode
 ------------------------------------------------------------------------
 
-function CHDPadParty.ApplyTestMode()
+function CHFrames.ApplyTestMode()
     for idx, unit in ipairs(UNIT_SLOTS) do
         if unit == "player" then
             -- Player always shows real character data — never overwrite with fake
-            CHDPadParty.UpdateFrame("player")
+            CHFrames.UpdateFrame("player")
         else
-            local f = CHDPadParty.frames[unit]
+            local f = CHFrames.frames[unit]
             if f then
                 f:Show()
                 f._healthAlpha = 1.0
@@ -1275,7 +1273,7 @@ end
 -- Event Handler
 ------------------------------------------------------------------------
 
-local eventFrame = CreateFrame("Frame", "CHDPadPartyEventFrame", UIParent)
+local eventFrame = CreateFrame("Frame", "CHFramesEventFrame", UIParent)
 
 eventFrame:RegisterEvent("ADDON_LOADED")
 eventFrame:RegisterEvent("GROUP_ROSTER_UPDATE")         -- G-053: not PARTY_MEMBERS_CHANGED
@@ -1299,88 +1297,88 @@ eventFrame:RegisterEvent("UNIT_EXITED_VEHICLE")         -- unit dismounted from 
 
 eventFrame:SetScript("OnEvent", function(self, event, arg1)
     if event == "ADDON_LOADED" then
-        if arg1 ~= "CH_DPadParty" then return end
+        if arg1:lower() ~= "chframes" then return end
 
         -- DB init: each field individually to avoid shared-table-reference bug
-        if type(CHDPadPartyDB) ~= "table" then
-            CHDPadPartyDB = {}
+        if type(CHFramesDB) ~= "table" then
+            CHFramesDB = {}
         end
-        if type(CHDPadPartyDB.position) ~= "table" then
-            CHDPadPartyDB.position = { point = "CENTER", relativePoint = "CENTER", x = 0, y = 0 }
+        if type(CHFramesDB.position) ~= "table" then
+            CHFramesDB.position = { point = "CENTER", relativePoint = "CENTER", x = 0, y = 0 }
         end
-        if CHDPadPartyDB.visible    == nil then CHDPadPartyDB.visible    = true  end
-        if CHDPadPartyDB.locked     == nil then CHDPadPartyDB.locked     = true  end
-        if CHDPadPartyDB.minimapPos == nil then CHDPadPartyDB.minimapPos = 210   end
-        if CHDPadPartyDB.scale      == nil then CHDPadPartyDB.scale      = 1.0   end
-        if CHDPadPartyDB.layout     == nil then CHDPadPartyDB.layout     = "handheld" end
+        if CHFramesDB.visible    == nil then CHFramesDB.visible    = true  end
+        if CHFramesDB.locked     == nil then CHFramesDB.locked     = true  end
+        if CHFramesDB.minimapPos == nil then CHFramesDB.minimapPos = 210   end
+        if CHFramesDB.scale      == nil then CHFramesDB.scale      = 1.0   end
+        if CHFramesDB.layout     == nil then CHFramesDB.layout     = "handheld" end
         -- testMode always resets to false on load — it is a session-only preview
         -- tool, not a persistent setting. Saving it caused fake data to show on
         -- the next login even when the player is in a real party.
-        CHDPadPartyDB.testMode = false
+        CHFramesDB.testMode = false
         -- settingsX / settingsY default to nil (panel uses default center position)
 
-        CHDPadParty.Init()
+        CHFrames.Init()
         -- Restore saved layout (Init uses handheld by default; this re-anchors if different)
-        if CHDPadPartyDB.layout ~= "handheld" then
-            CHDPadParty.ApplyLayout(CHDPadPartyDB.layout)
+        if CHFramesDB.layout ~= "handheld" then
+            CHFrames.ApplyLayout(CHFramesDB.layout)
         end
 
-        if CHDPadPartyDB.visible then
-            CHDPadParty.root:Show()
+        if CHFramesDB.visible then
+            CHFrames.root:Show()
         else
-            CHDPadParty.root:Hide()
+            CHFrames.root:Hide()
         end
 
     elseif event == "GROUP_ROSTER_UPDATE" then
-        CHDPadParty.UpdateVisibility()
-        CHDPadParty.UpdateAll()
+        CHFrames.UpdateVisibility()
+        CHFrames.UpdateAll()
 
     elseif event == "UNIT_HEALTH" then
         -- G-056: only process tracked units
         if UNIT_LOOKUP[arg1] then
-            CHDPadParty.UpdateFrame(arg1)
+            CHFrames.UpdateFrame(arg1)
         end
 
     elseif event == "UNIT_POWER_UPDATE" then
         if UNIT_LOOKUP[arg1] then
-            CHDPadParty.UpdateFrame(arg1)
-            CHDPadParty.UpdatePower(arg1)
+            CHFrames.UpdateFrame(arg1)
+            CHFrames.UpdatePower(arg1)
         end
 
     elseif event == "UNIT_DISPLAYPOWER" then
         -- Power type changed (druid shifting, etc.) — update bar color and value
         if arg1 and UNIT_LOOKUP[arg1] then
-            CHDPadParty.UpdatePower(arg1)
+            CHFrames.UpdatePower(arg1)
         end
 
     elseif event == "UNIT_AURA" then
         -- G-065: guard on arg1 before any work
         -- G-067: skip entirely if test mode active
-        if UNIT_LOOKUP[arg1] and not (CHDPadPartyDB and CHDPadPartyDB.testMode) then
-            CHDPadParty.UpdateAuras(arg1)
-            CHDPadParty.UpdateMissingBuff(arg1)
-            CHDPadParty.UpdateDefensive(arg1)
-            CHDPadParty.UpdateAtonement(arg1)
+        if UNIT_LOOKUP[arg1] and not (CHFramesDB and CHFramesDB.testMode) then
+            CHFrames.UpdateAuras(arg1)
+            CHFrames.UpdateMissingBuff(arg1)
+            CHFrames.UpdateDefensive(arg1)
+            CHFrames.UpdateAtonement(arg1)
         end
 
     elseif event == "PLAYER_TARGET_CHANGED" then
         -- No arg1 — loop all slots to clear old target and highlight new one
         for _, unit in ipairs(UNIT_SLOTS) do
-            CHDPadParty.UpdateBorder(unit)
+            CHFrames.UpdateBorder(unit)
         end
 
     elseif event == "PLAYER_FLAGS_CHANGED" then
         -- Catches AFK, dead, ghost transitions
         if UNIT_LOOKUP[arg1] then
-            CHDPadParty.UpdateFrame(arg1)
+            CHFrames.UpdateFrame(arg1)
         end
 
     elseif event == "PLAYER_ENTERING_WORLD" then
-        CHDPadParty.UpdateVisibility()
-        CHDPadParty.UpdateAll()
+        CHFrames.UpdateVisibility()
+        CHFrames.UpdateAll()
         -- Re-position minimap button after zone transitions
-        if CHDPadParty.minimapBtn then
-            CHDPadParty.UpdateMinimapButtonPos()
+        if CHFrames.minimapBtn then
+            CHFrames.UpdateMinimapButtonPos()
         end
         -- Detect which spell to use for range probing (class/spec-specific).
         -- Re-runs on zone transition in case talents changed spell availability.
@@ -1391,19 +1389,19 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
 
         -- G-RANGE-5: range ticker created here, not in Init — unit data unavailable
         -- at ADDON_LOADED time. Guard prevents stacking on every zone transition.
-        if not CHDPadParty.rangeTicker then
-            CHDPadParty.rangeTicker = C_Timer.NewTicker(0.1, function()
+        if not CHFrames.rangeTicker then
+            CHFrames.rangeTicker = C_Timer.NewTicker(0.1, function()
                 for _, unit in ipairs(UNIT_SLOTS) do
-                    CHDPadParty.UpdateRange(unit)
+                    CHFrames.UpdateRange(unit)
                 end
             end)
         end
         -- Timer ticker: refreshes duration text on visible aura icons every second.
-        if not CHDPadParty.timerTicker then
-            CHDPadParty.timerTicker = C_Timer.NewTicker(1, function()
+        if not CHFrames.timerTicker then
+            CHFrames.timerTicker = C_Timer.NewTicker(1, function()
                 local now = GetTime()
                 for _, unit in ipairs(UNIT_SLOTS) do
-                    local f = CHDPadParty.frames[unit]
+                    local f = CHFrames.frames[unit]
                     if f then
                         for _, ilist in ipairs({ f.buffIcons, f.debuffIcons }) do
                             for _, icon in ipairs(ilist) do
@@ -1442,33 +1440,33 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
 
     elseif event == "UNIT_HEAL_PREDICTION" then
         if UNIT_LOOKUP[arg1] then
-            CHDPadParty.UpdateHealPrediction(arg1)
+            CHFrames.UpdateHealPrediction(arg1)
         end
 
     elseif event == "UNIT_ABSORB_AMOUNT_CHANGED" then
         if UNIT_LOOKUP[arg1] then
-            CHDPadParty.UpdateAbsorbs(arg1)
-            CHDPadParty.UpdateFrame(arg1)    -- refresh hpText with updated _hasAbsorb
+            CHFrames.UpdateAbsorbs(arg1)
+            CHFrames.UpdateFrame(arg1)    -- refresh hpText with updated _hasAbsorb
         end
 
     elseif event == "UNIT_HEAL_ABSORB_AMOUNT_CHANGED" then
         if UNIT_LOOKUP[arg1] then
-            CHDPadParty.UpdateAbsorbs(arg1)
+            CHFrames.UpdateAbsorbs(arg1)
         end
 
     elseif event == "UNIT_THREAT_SITUATION_UPDATE" then
         if arg1 and UNIT_LOOKUP[arg1] then
-            CHDPadParty.UpdateBorder(arg1)
+            CHFrames.UpdateBorder(arg1)
         end
 
     elseif event == "INCOMING_RESURRECT_CHANGED" or event == "INCOMING_SUMMON_CHANGED" then
         if arg1 and UNIT_LOOKUP[arg1] then
-            CHDPadParty.UpdateRez(arg1)
+            CHFrames.UpdateRez(arg1)
         end
 
     elseif event == "UNIT_ENTERED_VEHICLE" or event == "UNIT_EXITED_VEHICLE" then
         if arg1 and UNIT_LOOKUP[arg1] then
-            CHDPadParty.UpdateVehicle(arg1)
+            CHFrames.UpdateVehicle(arg1)
         end
 
     elseif event == "RAID_TARGET_UPDATE" then
@@ -1479,7 +1477,7 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
         -- untainted execution context where GetRaidTargetIndex returns a plain number.
         C_Timer.After(0, function()
             for _, unit in ipairs(UNIT_SLOTS) do
-                CHDPadParty.UpdateRaidMarker(unit)
+                CHFrames.UpdateRaidMarker(unit)
             end
         end)
 
@@ -1491,40 +1489,40 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
 end)
 
 ------------------------------------------------------------------------
--- Slash Command  /chdpad [show|hide|toggle|settings]
+-- Slash Command  /chframes [show|hide|toggle|settings]
 ------------------------------------------------------------------------
 
-SLASH_CHDPADPARTY1 = "/chdpad"
+SLASH_CHFRAMES1 = "/chframes"
 
-SlashCmdList["CHDPADPARTY"] = function(msg)
-    local root = CHDPadParty.root
+SlashCmdList["CHFRAMES"] = function(msg)
+    local root = CHFrames.root
     if not root then return end
 
     local cmd = strtrim(msg):lower()
 
     if cmd == "show" then
         root:Show()
-        CHDPadPartyDB.visible = true
-        print("|cff00ff00CH_DPadParty:|r Frames shown.")
+        CHFramesDB.visible = true
+        print("|cff00ff00CHFrames:|r Frames shown.")
 
     elseif cmd == "hide" then
         root:Hide()
-        CHDPadPartyDB.visible = false
-        print("|cff00ff00CH_DPadParty:|r Frames hidden.")
+        CHFramesDB.visible = false
+        print("|cff00ff00CHFrames:|r Frames hidden.")
 
     elseif cmd == "toggle" or cmd == "" then
         if root:IsShown() then
             root:Hide()
-            CHDPadPartyDB.visible = false
-            print("|cff00ff00CH_DPadParty:|r Frames hidden.")
+            CHFramesDB.visible = false
+            print("|cff00ff00CHFrames:|r Frames hidden.")
         else
             root:Show()
-            CHDPadPartyDB.visible = true
-            print("|cff00ff00CH_DPadParty:|r Frames shown.")
+            CHFramesDB.visible = true
+            print("|cff00ff00CHFrames:|r Frames shown.")
         end
 
     elseif cmd == "settings" then
-        local panel = CHDPadParty.SettingsPanel
+        local panel = CHFrames.SettingsPanel
         if panel then
             if panel:IsShown() then panel:Hide() else panel:Show() end
         end
@@ -1532,15 +1530,15 @@ SlashCmdList["CHDPADPARTY"] = function(msg)
     elseif cmd:sub(1, 5) == "scale" then
         local val = tonumber(cmd:sub(7))
         if val and val >= 0.5 and val <= 2.0 then
-            CHDPadPartyDB.scale = math.floor(val * 10 + 0.5) / 10
-            CHDPadParty.root:SetScale(CHDPadPartyDB.scale)
-            CHDPadParty.RefreshSettingsButtons()
-            print("|cff00ff00CH_DPadParty:|r Scale set to " .. CHDPadPartyDB.scale)
+            CHFramesDB.scale = math.floor(val * 10 + 0.5) / 10
+            CHFrames.root:SetScale(CHFramesDB.scale)
+            CHFrames.RefreshSettingsButtons()
+            print("|cff00ff00CHFrames:|r Scale set to " .. CHFramesDB.scale)
         else
-            print("|cff00ff00CH_DPadParty:|r Scale must be 0.5 – 2.0  (e.g. /chdpad scale 1.5)")
+            print("|cff00ff00CHFrames:|r Scale must be 0.5 – 2.0  (e.g. /chframes scale 1.5)")
         end
 
     else
-        print("|cff00ff00CH_DPadParty:|r Usage: /chdpad [show|hide|toggle|settings|scale <0.5-2.0>]")
+        print("|cff00ff00CHFrames:|r Usage: /chframes [show|hide|toggle|settings|scale <0.5-2.0>]")
     end
 end

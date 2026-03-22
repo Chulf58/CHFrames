@@ -1,18 +1,18 @@
--- CH_DPadParty_Minimap.lua
--- Minimap button for CH_DPadParty — raw WoW API, no LibDBIcon
+-- CHFrames_Minimap.lua
+-- Minimap button for CHFrames — raw WoW API, no LibDBIcon
 ------------------------------------------------------------------------
 
-CHDPadParty = CHDPadParty or {}
+CHFrames = CHFrames or {}
 
 ------------------------------------------------------------------------
 -- UpdateMinimapButtonPos
 ------------------------------------------------------------------------
 
-function CHDPadParty.UpdateMinimapButtonPos()
-    local btn = CHDPadParty.minimapBtn
+function CHFrames.UpdateMinimapButtonPos()
+    local btn = CHFrames.minimapBtn
     if not btn then return end
 
-    local angle = CHDPadPartyDB and CHDPadPartyDB.minimapPos or 210
+    local angle = CHFramesDB and CHFramesDB.minimapPos or 210
     local rad   = math.rad(angle)
     -- G-062: dynamic radius, never hardcoded
     local r     = (Minimap:GetWidth() / 2) + 5
@@ -25,11 +25,11 @@ end
 -- BuildMinimapButton
 ------------------------------------------------------------------------
 
-function CHDPadParty.BuildMinimapButton()
+function CHFrames.BuildMinimapButton()
     -- Pattern confirmed from LibDBIcon-1.0 source (used by BigWigs, Details,
     -- hundreds of other addons). Round appearance requires NO masking — just a
     -- small 18×18 icon that sits inside the ring's inner opening.
-    local btn = CreateFrame("Button", "CHDPadPartyMinimapBtn", Minimap)
+    local btn = CreateFrame("Button", "CHFramesMinimapBtn", Minimap)
     btn:SetSize(31, 31)
     btn:SetFrameStrata("MEDIUM")
     btn:SetFixedFrameStrata(true)   -- prevent ElvUI/other addons overriding strata
@@ -67,7 +67,7 @@ function CHDPadParty.BuildMinimapButton()
     -- Left-click: toggle settings panel
     btn:SetScript("OnClick", function(self, button)
         if button == "LeftButton" then
-            local panel = CHDPadParty.SettingsPanel
+            local panel = CHFrames.SettingsPanel
             if panel then
                 if panel:IsShown() then
                     panel:Hide()
@@ -93,8 +93,8 @@ function CHDPadParty.BuildMinimapButton()
 
             -- G-063: math.atan2(y, x) — NOT math.atan
             local angle = math.deg(math.atan2(cy - my, cx - mx))
-            CHDPadPartyDB.minimapPos = angle
-            CHDPadParty.UpdateMinimapButtonPos()
+            CHFramesDB.minimapPos = angle
+            CHFrames.UpdateMinimapButtonPos()
         end)
     end)
 
@@ -130,6 +130,6 @@ function CHDPadParty.BuildMinimapButton()
         end)
     end)
 
-    CHDPadParty.minimapBtn = btn
-    CHDPadParty.UpdateMinimapButtonPos()
+    CHFrames.minimapBtn = btn
+    CHFrames.UpdateMinimapButtonPos()
 end

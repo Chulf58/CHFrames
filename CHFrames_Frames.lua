@@ -1,16 +1,16 @@
--- CH_DPadParty_Frames.lua
--- Frame construction helpers for CH_DPadParty
+-- CHFrames_Frames.lua
+-- Frame construction helpers for CHFrames
 -- Builds the root anchor frame and individual unit frames
 ------------------------------------------------------------------------
 
-CHDPadParty = CHDPadParty or {}
+CHFrames = CHFrames or {}
 
 ------------------------------------------------------------------------
 -- Root Frame
 ------------------------------------------------------------------------
 
-function CHDPadParty.BuildRootFrame()
-    local root = CreateFrame("Frame", "CHDPadPartyRoot", UIParent)
+function CHFrames.BuildRootFrame()
+    local root = CreateFrame("Frame", "CHFramesRoot", UIParent)
     root:SetSize(16, 16)
     root:SetFrameStrata("MEDIUM")
     root:SetMovable(true)
@@ -25,7 +25,7 @@ function CHDPadParty.BuildRootFrame()
         self:StopMovingOrSizing()
         local point, _, relativePoint, x, y = self:GetPoint(1)
         if point and x and y then
-            CHDPadPartyDB.position = {
+            CHFramesDB.position = {
                 point         = point,
                 relativePoint = relativePoint or "CENTER",
                 x             = x,
@@ -34,7 +34,7 @@ function CHDPadParty.BuildRootFrame()
         end
     end)
 
-    CHDPadParty.root = root
+    CHFrames.root = root
     return root
 end
 
@@ -42,14 +42,14 @@ end
 -- Unit Frame
 ------------------------------------------------------------------------
 
-function CHDPadParty.BuildUnitFrame(unit)
-    local root = CHDPadParty.root
+function CHFrames.BuildUnitFrame(unit)
+    local root = CHFrames.root
     if not root then
-        error("CH_DPadParty: BuildRootFrame() must be called before BuildUnitFrame()")
+        error("CHFrames: BuildRootFrame() must be called before BuildUnitFrame()")
     end
 
     -- Outer frame parented to root
-    local f = CreateFrame("Frame", "CHDPadPartyFrame_" .. unit, root, "BackdropTemplate")
+    local f = CreateFrame("Frame", "CHFramesFrame_" .. unit, root, "BackdropTemplate")
     f:SetSize(200, 78)
     f.unit = unit
 
@@ -63,7 +63,7 @@ function CHDPadParty.BuildUnitFrame(unit)
     -- f:Hide() from insecure code (ADDON_ACTION_BLOCKED). Parenting secureBtn to f makes it
     -- a normal child-to-parent anchor, eliminating the restriction on f. secureBtn visibility
     -- is managed implicitly: it shows/hides with f. Never call secureBtn:Show()/Hide() directly.
-    local secureBtn = CreateFrame("Button", "CHDPadPartySecure_"..unit, f, "SecureUnitButtonTemplate")
+    local secureBtn = CreateFrame("Button", "CHFramesSecure_"..unit, f, "SecureUnitButtonTemplate")
     secureBtn:SetAllPoints(f)
     secureBtn:SetFrameStrata("MEDIUM")
     secureBtn:SetFrameLevel(100)
@@ -77,15 +77,15 @@ function CHDPadParty.BuildUnitFrame(unit)
     -- G-064: use RegisterForDrag + SetMovable to lock; never EnableMouse(false) on f.
     secureBtn:RegisterForDrag("LeftButton")
     secureBtn:SetScript("OnDragStart", function(self)
-        if not (CHDPadPartyDB and CHDPadPartyDB.locked) then
-            CHDPadParty.root:StartMoving()
+        if not (CHFramesDB and CHFramesDB.locked) then
+            CHFrames.root:StartMoving()
         end
     end)
     secureBtn:SetScript("OnDragStop", function(self)
-        CHDPadParty.root:StopMovingOrSizing()
-        local point, _, relativePoint, x, y = CHDPadParty.root:GetPoint(1)
+        CHFrames.root:StopMovingOrSizing()
+        local point, _, relativePoint, x, y = CHFrames.root:GetPoint(1)
         if point and x and y then
-            CHDPadPartyDB.position = {
+            CHFramesDB.position = {
                 point         = point,
                 relativePoint = relativePoint or "CENTER",
                 x             = x,

@@ -2,6 +2,91 @@
 
 ## High Priority / Infrastructure
 
+- [ ] **Party frame: Decision mode (new display mode, toggled in settings)**
+
+  Vision: *One frame = one decision*
+
+  Toggle: `CHDPadPartyDB.displayMode = "legacy" | "decision"`. D-pad / Side-by-Side / Stacked layout is unchanged regardless of mode.
+
+  ### Must-haves
+
+  - **Priority engine** — evaluates all states on a unit, outputs ONE dominant state:
+    `DEAD > LETHAL_MECHANIC > DISPELLABLE > CRITICAL_HP > INCOMING_DAMAGE > NORMAL`
+    This is hardcoded logic, not user-configurable.
+  - **Single dominant signal renderer** — consumes the priority engine output and applies ONE visual to the frame (full frame color override OR strong border glow OR large central icon). Replace, don't stack.
+  - **Curated debuff list** — hardcoded, maintained per patch/season. Two tiers:
+    - Lethal mechanics: must act in <2s (full red frame override)
+    - Dispellable + dangerous: highlight by dispel type (magic=blue, curse=purple, etc.)
+    - Everything else: hidden
+  - **Settings toggle** — one button in the settings panel: `Mode: Legacy / Decision`. No other config in decision mode.
+
+  ### Implementation order
+  1. Priority engine (pure logic, returns state — no visuals yet)
+  2. Decision renderer (visual layer consuming engine output)
+  3. Toggle (wires legacy vs. decision render path)
+
+  ### Design principles
+  - Zero setup: install → instantly usable in Mythic+
+  - Opinionated: the addon decides what matters, not the user
+  - Instant readability: at a glance (<200ms) player knows who is in danger, why, and if they can fix it
+  - No visual noise: hide everything that doesn't answer "do I need to act right now?"
+
+  ### What decision mode does NOT have
+  - Appearance customisation
+  - Indicator grids
+  - Multiple small simultaneous indicators
+  - Any toggles beyond the mode switch itself
+
+---
+
+- [ ] **Raid frames — structured high-density grid (separate module: `CHFrames_Raid.lua`)**
+
+  Vision: *Many frames, one coherent picture*
+
+  Auto-shown when `IsInRaid()` is true; party frames hidden. Returns to party frames on raid leave. Trigger: `GROUP_ROSTER_UPDATE`.
+
+  ### Core architecture differences from party frames
+
+  Raid uses **structured multi-signal layering** (not single dominant signal). Each position on the frame has a fixed meaning:
+
+  | Zone | Signal |
+  |------|--------|
+  | Center / health bar | HP + status |
+  | Corners | HoTs / tracked buffs |
+  | Border | Debuff state (color = type) |
+  | Text | Name + HP% |
+
+  Signals layer with hierarchy — critical debuff overrides border color, but HoTs remain visible in corners. Information is organized, not suppressed.
+
+  ### Must-have systems
+
+  - **Indicator system** — position-based, fixed meaning per slot. Every frame behaves identically so peripheral vision works.
+  - **Debuff prioritization** — most critical feature. Lethal mechanics and dispellable debuffs must be immediately obvious. Dispellable vs. non-dispellable distinction must be clear. Raid wipes happen because mechanics are missed.
+  - **HoT / buff tracking** — required for Druid, Priest, Monk healers. Show presence + optional duration (minimal). Fixed corner positions, must not clutter.
+  - **Range / status** — out-of-range fade, dead/ghost/offline states. Essential for triage.
+  - **Aggro / threat** — lightweight indicator (not dominant). Useful for tanks losing aggro, DPS pulling.
+  - **Layout adaptability** — handles 10 / 20 / 30+ / 40-man without breaking. Configurable rows × columns (e.g. 5×8, 8×5, 10×4). `CHDPadPartyDB.raidLayout` settings independent from party layout.
+  - **Performance at scale** — 40 units × multiple simultaneous updates. No CPU spikes, no frame drops. This is where bad addons die.
+
+  ### Key differences from party display mode
+
+  | Party (decision mode) | Raid |
+  |-----------------------|------|
+  | One dominant signal | Structured multi-signal |
+  | Replace on priority | Layer with hierarchy |
+  | Fully opinionated | Config expected by users |
+  | No customisation | Role-adaptive (healer/DPS/tank emphasis) |
+
+  ### Configuration philosophy
+
+  Unlike party frames, raid users expect customisation because different classes need different info. Healers need HoTs + debuffs. DPS need minimal + mechanics. Tanks need threat + externals. The config must be **powerful but understandable** — current opportunity: Grid2 is powerful but painful.
+
+  ### Technical notes
+  - `UNIT_LOOKUP` table extended dynamically on roster update to cover active `raidN` tokens (`raid1`–`raid40`)
+  - Hide Blizzard raid frames the same way as party frames (via `RegisterStateDriver`, see G-075)
+  - Sub-group headers, main tank / main assist markers, role sorting: post-MVP
+  - This is a significant new system — plan as a separate module (`CHFrames_Raid.lua`) to keep party code clean
+
 - [ ] **Rename addon from "CH D-Pad Party" to "CHFrames"**
   - Rename the addon folder: `CH_DPadParty` → `CHFrames`
   - Update `.toc` file: `## Title:`, `## Interface:`, SavedVariables name (`CHDPadPartyDB` → `CHFramesDB`), and all `## X-*` metadata fields
@@ -423,3 +508,42 @@
 - [ ] Show number of active crowd-control debuffs (CC tracker)
 - [ ] Clickcasting support (right-click = custom spell on unit)
 - [ ] Separate settings for party vs. raid (5-man vs 10/25-man layouts)
+
+---
+
+## Unit Frames (Player / Target / Focus)
+
+Vision: *Always-visible, always-readable combat anchors*
+
+These answer: "What is happening to ME and my target?" — personal state + combat context.
+Not decision engines. Not group awareness. Pure state display.
+
+### Must-haves (non-negotiable)
+
+- **Health + resource bars** — foundation of everything. Smooth updates, no jitter, instantly readable. If this feels bad, everything fails.
+- **Cast bar** — for target, focus, and boss. Must show: cast name, progress bar, interruptible vs. not. One of the highest-value elements in combat.
+- **Curated buff/debuff display** — show: important player buffs, important target debuffs, DoTs for DPS tracking. Hide: full aura lists, 20+ icon dumps. Curate, don't dump.
+- **Combat state indicators** — in combat / out of combat, dead/ghost, target classification.
+- **Threat awareness** — lightweight (safe / warning / pulling aggro). Not visually dominant unless critical.
+- **Target identity** — name, level/classification (boss, elite), optional role/type. Must answer instantly: what am I targeting, is it dangerous?
+- **Pet frame** — exists, clear, unobtrusive. Health + important states only. Do not overdesign.
+
+### Differentiators
+
+- **Readability during movement** — peripheral-vision first. Player is moving, dodging, reacting to mechanics. Frames must be readable without direct focus.
+- **Smoothness** — fluid transitions, instant feedback. Health jumps and laggy updates are the biggest failure mode here.
+- **Information hierarchy**: always-important (health, resource) → situational (casts, debuffs) → secondary (minor buffs, flavor). Never reversed.
+- **Screen placement synergy** — competes with action bars, nameplates, mechanic callouts. Must fit cleanly without dominating.
+
+### Optional / post-MVP
+
+- Focus frame support
+- Target-of-target
+- Some positioning and scaling options (users expect this, unlike party frames)
+
+### Design constraints
+
+- Do NOT try to replace combat logic systems or encounter awareness
+- Do NOT show full aura lists
+- Do NOT make frames oversized — they are anchors, not dashboards
+- Minimal config, but some flexibility on positioning and scale is expected

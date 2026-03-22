@@ -1,8 +1,8 @@
--- CH_DPadParty_Settings.lua
--- Tabbed settings panel for CH_DPadParty
+-- CHFrames_Settings.lua
+-- Tabbed settings panel for CHFrames
 ------------------------------------------------------------------------
 
-CHDPadParty = CHDPadParty or {}
+CHFrames = CHFrames or {}
 
 ------------------------------------------------------------------------
 -- Layout dropdown data
@@ -18,22 +18,22 @@ local LAYOUT_OPTIONS = {
 -- RefreshSettingsPanel — sync UI widgets from DB state
 ------------------------------------------------------------------------
 
-function CHDPadParty.RefreshSettingsPanel()
-    if not CHDPadPartyDB then return end
+function CHFrames.RefreshSettingsPanel()
+    if not CHFramesDB then return end
 
-    if CHDPadParty.lockCheckbox then
-        CHDPadParty.lockCheckbox:SetChecked(CHDPadPartyDB.locked or false)
+    if CHFrames.lockCheckbox then
+        CHFrames.lockCheckbox:SetChecked(CHFramesDB.locked or false)
     end
-    if CHDPadParty.testModeCheckbox then
-        CHDPadParty.testModeCheckbox:SetChecked(CHDPadPartyDB.testMode or false)
+    if CHFrames.testModeCheckbox then
+        CHFrames.testModeCheckbox:SetChecked(CHFramesDB.testMode or false)
     end
-    if CHDPadParty.scaleSlider then
-        CHDPadParty.scaleSlider:SetValue(CHDPadPartyDB.scale or 1.0)
+    if CHFrames.scaleSlider then
+        CHFrames.scaleSlider:SetValue(CHFramesDB.scale or 1.0)
     end
-    if CHDPadParty.layoutDropdown and CHDPadPartyDB.layout then
+    if CHFrames.layoutDropdown and CHFramesDB.layout then
         for _, opt in ipairs(LAYOUT_OPTIONS) do
-            if opt.value == CHDPadPartyDB.layout then
-                CHDPadParty.layoutDropdown:SetText(opt.label)
+            if opt.value == CHFramesDB.layout then
+                CHFrames.layoutDropdown:SetText(opt.label)
                 break
             end
         end
@@ -41,16 +41,16 @@ function CHDPadParty.RefreshSettingsPanel()
 end
 
 -- Backward-compat alias used by Init()
-CHDPadParty.RefreshSettingsButtons = CHDPadParty.RefreshSettingsPanel
+CHFrames.RefreshSettingsButtons = CHFrames.RefreshSettingsPanel
 
 ------------------------------------------------------------------------
 -- BuildSettingsPanel
 ------------------------------------------------------------------------
 
-function CHDPadParty.BuildSettingsPanel()
+function CHFrames.BuildSettingsPanel()
     local PANEL_W, PANEL_H = 420, 380
 
-    local panel = CreateFrame("Frame", "CHDPadPartySettingsPanel", UIParent, "BackdropTemplate")
+    local panel = CreateFrame("Frame", "CHFramesSettingsPanel", UIParent, "BackdropTemplate")
     panel:SetSize(PANEL_W, PANEL_H)
     panel:SetFrameStrata("DIALOG")
     panel:SetMovable(true)
@@ -71,10 +71,10 @@ function CHDPadParty.BuildSettingsPanel()
     panel:SetBackdropBorderColor(0.25, 0.25, 0.28, 1)
 
     -- Restore saved position
-    if CHDPadPartyDB and CHDPadPartyDB.settingsX and CHDPadPartyDB.settingsY then
+    if CHFramesDB and CHFramesDB.settingsX and CHFramesDB.settingsY then
         panel:ClearAllPoints()
         panel:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT",
-            CHDPadPartyDB.settingsX, CHDPadPartyDB.settingsY)
+            CHFramesDB.settingsX, CHFramesDB.settingsY)
     else
         panel:SetPoint("CENTER", UIParent, "CENTER", 200, 0)
     end
@@ -84,19 +84,19 @@ function CHDPadParty.BuildSettingsPanel()
         self:StopMovingOrSizing()
         local x, y = self:GetLeft(), self:GetTop()
         if x and y then
-            CHDPadPartyDB.settingsX = x
-            CHDPadPartyDB.settingsY = y
+            CHFramesDB.settingsX = x
+            CHFramesDB.settingsY = y
         end
     end)
 
     -- Sync widget state each time the panel opens
-    panel:SetScript("OnShow", function() CHDPadParty.RefreshSettingsPanel() end)
+    panel:SetScript("OnShow", function() CHFrames.RefreshSettingsPanel() end)
 
     -- Title
     local title = panel:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     title:SetPoint("TOPLEFT", panel, "TOPLEFT", 10, -8)
     title:SetTextColor(1, 0.82, 0, 1)
-    title:SetText("CH D-Pad Party")
+    title:SetText("CHFrames")
 
     -- Close button
     local closeBtn = CreateFrame("Button", nil, panel, "UIPanelCloseButton")
@@ -192,19 +192,19 @@ function CHDPadParty.BuildSettingsPanel()
     local lockLbl = v1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     lockLbl:SetPoint("LEFT", lockCb, "RIGHT", 4, 0)
     lockLbl:SetText("Lock frames (prevent dragging)")
-    lockCb:SetChecked(CHDPadPartyDB and CHDPadPartyDB.locked or false)
+    lockCb:SetChecked(CHFramesDB and CHFramesDB.locked or false)
     lockCb:SetScript("OnClick", function(self)
-        if not CHDPadPartyDB or not CHDPadParty.root then return end
+        if not CHFramesDB or not CHFrames.root then return end
         if InCombatLockdown() then
-            self:SetChecked(CHDPadPartyDB.locked)
-            print("|cff00ff00CH_DPadParty:|r Cannot change lock state in combat.")
+            self:SetChecked(CHFramesDB.locked)
+            print("|cff00ff00CHFrames:|r Cannot change lock state in combat.")
             return
         end
-        CHDPadPartyDB.locked = not not self:GetChecked()
-        CHDPadParty.root:SetMovable(not CHDPadPartyDB.locked)
-        local locked = CHDPadPartyDB.locked
+        CHFramesDB.locked = not not self:GetChecked()
+        CHFrames.root:SetMovable(not CHFramesDB.locked)
+        local locked = CHFramesDB.locked
         for _, u in ipairs({ "party1", "party2", "party3", "party4", "player" }) do
-            local fr = CHDPadParty.frames[u]
+            local fr = CHFrames.frames[u]
             if fr and fr.secureBtn then
                 if locked then
                     fr.secureBtn:RegisterForDrag()
@@ -214,7 +214,7 @@ function CHDPadParty.BuildSettingsPanel()
             end
         end
     end)
-    CHDPadParty.lockCheckbox = lockCb
+    CHFrames.lockCheckbox = lockCb
 
     -- Test mode checkbox
     local testCb = CreateFrame("CheckButton", nil, v1, "UICheckButtonTemplate")
@@ -223,18 +223,18 @@ function CHDPadParty.BuildSettingsPanel()
     local testLbl = v1:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     testLbl:SetPoint("LEFT", testCb, "RIGHT", 4, 0)
     testLbl:SetText("Test mode (show fake party data)")
-    testCb:SetChecked(CHDPadPartyDB and CHDPadPartyDB.testMode or false)
+    testCb:SetChecked(CHFramesDB and CHFramesDB.testMode or false)
     testCb:SetScript("OnClick", function(self)
-        if not CHDPadPartyDB then return end
-        CHDPadPartyDB.testMode = not not self:GetChecked()
-        if CHDPadPartyDB.testMode then
-            CHDPadParty.ApplyTestMode()
+        if not CHFramesDB then return end
+        CHFramesDB.testMode = not not self:GetChecked()
+        if CHFramesDB.testMode then
+            CHFrames.ApplyTestMode()
         else
-            CHDPadParty.UpdateVisibility()
-            CHDPadParty.UpdateAll()
+            CHFrames.UpdateVisibility()
+            CHFrames.UpdateAll()
         end
     end)
-    CHDPadParty.testModeCheckbox = testCb
+    CHFrames.testModeCheckbox = testCb
 
     --------------------------------------------------------------------
     -- TAB 2: Layout
@@ -257,27 +257,27 @@ function CHDPadParty.BuildSettingsPanel()
             local o = opt  -- upvalue for closure
             rootDescription:CreateRadio(
                 o.label,
-                function() return CHDPadPartyDB and CHDPadPartyDB.layout == o.value end,
+                function() return CHFramesDB and CHFramesDB.layout == o.value end,
                 function()
                     if InCombatLockdown() then
-                        print("|cff00ff00CH_DPadParty:|r Cannot change layout in combat.")
+                        print("|cff00ff00CHFrames:|r Cannot change layout in combat.")
                         return
                     end
-                    CHDPadParty.ApplyLayout(o.value)
+                    CHFrames.ApplyLayout(o.value)
                     layoutDD:SetText(o.label)
                 end
             )
         end
     end)
     -- Set initial display text from saved layout
-    local curLayout = (CHDPadPartyDB and CHDPadPartyDB.layout) or "handheld"
+    local curLayout = (CHFramesDB and CHFramesDB.layout) or "handheld"
     for _, opt in ipairs(LAYOUT_OPTIONS) do
         if opt.value == curLayout then
             layoutDD:SetText(opt.label)
             break
         end
     end
-    CHDPadParty.layoutDropdown = layoutDD
+    CHFrames.layoutDropdown = layoutDD
 
     -- Scale section
     MakeLabel(v2, "Scale", sep2, 0, -52)
@@ -288,7 +288,7 @@ function CHDPadParty.BuildSettingsPanel()
     -- Scale value readout (updated by slider)
     local scaleReadout = v2:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
     scaleReadout:SetPoint("LEFT", scaleLbl, "RIGHT", 8, 0)
-    scaleReadout:SetText(string.format("%.1f", (CHDPadPartyDB and CHDPadPartyDB.scale) or 1.0))
+    scaleReadout:SetText(string.format("%.1f", (CHFramesDB and CHFramesDB.scale) or 1.0))
 
     local scaleHolder = CreateFrame("Frame", nil, v2, "MinimalSliderWithSteppersTemplate")
     scaleHolder:SetSize(260, 20)
@@ -299,15 +299,15 @@ function CHDPadParty.BuildSettingsPanel()
         scaleSlider:SetMinMaxValues(0.5, 2.0)
         scaleSlider:SetValueStep(0.1)
         scaleSlider:SetObeyStepOnDrag(true)
-        scaleSlider:SetValue((CHDPadPartyDB and CHDPadPartyDB.scale) or 1.0)
+        scaleSlider:SetValue((CHFramesDB and CHFramesDB.scale) or 1.0)
         scaleSlider:SetScript("OnValueChanged", function(_, v)
-            if not CHDPadPartyDB or not CHDPadParty.root then return end
+            if not CHFramesDB or not CHFrames.root then return end
             local s = math.floor(v * 10 + 0.5) / 10
-            CHDPadPartyDB.scale = s
-            CHDPadParty.root:SetScale(s)
+            CHFramesDB.scale = s
+            CHFrames.root:SetScale(s)
             scaleReadout:SetText(string.format("%.1f", s))
         end)
-        CHDPadParty.scaleSlider = scaleSlider
+        CHFrames.scaleSlider = scaleSlider
     end
 
     --------------------------------------------------------------------
@@ -339,6 +339,6 @@ function CHDPadParty.BuildSettingsPanel()
     views[1]:Show()
     PanelTemplates_SetTab(panel, 1)
 
-    CHDPadParty.SettingsPanel = panel
+    CHFrames.SettingsPanel = panel
     return panel
 end

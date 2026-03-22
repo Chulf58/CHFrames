@@ -1,4 +1,4 @@
-# CH_DPadParty — Known Gotchas
+# CHFrames — Known Gotchas
 
 Hard-won lessons from development. Every entry here was a real bug.
 Agents: read this before planning or coding anything.
@@ -119,10 +119,10 @@ A ghost is also "dead" per `UnitIsDead()`. Check `UnitIsGhost()` first or ghost 
 ## SavedVariables
 
 **Initialize each field individually on ADDON_LOADED.**
-Do NOT do `CHDPadPartyDB = CHDPadPartyDB or {}` followed by `CHDPadPartyDB = defaults`. This wipes saved data on every load. Set each key only if nil:
+Do NOT do `CHFramesDB = CHFramesDB or {}` followed by `CHFramesDB = defaults`. This wipes saved data on every load. Set each key only if nil:
 ```lua
-if type(CHDPadPartyDB) ~= "table" then CHDPadPartyDB = {} end
-if CHDPadPartyDB.locked == nil then CHDPadPartyDB.locked = true end
+if type(CHFramesDB) ~= "table" then CHFramesDB = {} end
+if CHFramesDB.locked == nil then CHFramesDB.locked = true end
 ```
 
 **testMode must never persist across sessions.**
@@ -136,14 +136,14 @@ testMode is a session-only preview tool. Always reset it to `false` on `ADDON_LO
 ## Test Mode
 
 **G-067 — Test mode blocks live aura updates.**
-When `CHDPadPartyDB.testMode` is true, `UpdateAuras` must return immediately for all party slots. The UNIT_AURA event handler also skips entirely. Otherwise real aura events wipe fake icons.
+When `CHFramesDB.testMode` is true, `UpdateAuras` must return immediately for all party slots. The UNIT_AURA event handler also skips entirely. Otherwise real aura events wipe fake icons.
 
 **Test mode never overwrites player slot.**
 The player frame always shows real character data even in test mode. Only party1–4 get fake data. `ApplyTestMode` skips `unit == "player"` and calls `UpdateFrame("player")` instead.
 
 
 **G-075 — Use RegisterStateDriver to hide Blizzard party frames; never call Lua methods on them.**
-`RegisterStateDriver(frame, "visibility", "hide")` routes through Blizzard's secure C-level state driver without tainting our context. Calling `:Hide()`, `:UnregisterAllEvents()`, or any Lua method on `PartyFrame`/`CompactPartyFrame`/`CompactRaidFrameManager` triggers G-CRITICAL taint. Implemented in `CH_DPadParty_HideBlizzard.lua`, triggered on `PLAYER_LOGIN` with a guard flag. KNOWN LIMITATION: `PLAYER_LOGIN` does not re-fire on `/reload`. CompactPartyFrame and CompactRaidFrameManager are excluded until in-game taint testing confirms safety.
+`RegisterStateDriver(frame, "visibility", "hide")` routes through Blizzard's secure C-level state driver without tainting our context. Calling `:Hide()`, `:UnregisterAllEvents()`, or any Lua method on `PartyFrame`/`CompactPartyFrame`/`CompactRaidFrameManager` triggers G-CRITICAL taint. Implemented in `CHFrames_HideBlizzard.lua`, triggered on `PLAYER_LOGIN` with a guard flag. KNOWN LIMITATION: `PLAYER_LOGIN` does not re-fire on `/reload`. CompactPartyFrame and CompactRaidFrameManager are excluded until in-game taint testing confirms safety.
 
 **G-076 — Use issecretvalue() to detect non-zero secret numbers; never compare them directly.**
 `UnitGetTotalAbsorbs` returns plain `0` when no shield is active, and a secret number when a shield is present. Comparisons like `absorb ~= 0` on secret numbers return TAINTED booleans — assigning a tainted boolean to a field and using it in a conditional in a different function propagates taint and silently breaks behavior. Use `issecretvalue(absorb)` instead: it returns a plain (non-tainted) boolean indicating whether the value is secret. Pattern: `f._hasAbsorb = type(issecretvalue) == "function" and issecretvalue(absorb)`.
