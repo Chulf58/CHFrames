@@ -482,5 +482,11 @@ function CHFrames.BuildUnitFrame(unit)
     targetRing:Hide()
     f.targetRing = targetRing
 
+    -- Priority engine state (read by EvaluatePriority / ApplyPrioritySignal in CHFrames.lua)
+    -- Initialized here so these fields are never nil on first read, even before the first
+    -- UpdatePriority call.  6 = NORMAL (lowest urgency), false = border not claimed.
+    f._priorityLevel     = 6
+    f._priorityOwnsBorder = false
+
     return f
 end

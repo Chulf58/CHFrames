@@ -47,6 +47,17 @@ local BORDER_DEFAULT = { r = 0.3,  g = 0.3,  b = 0.3  }
 local BORDER_TARGET  = { r = 1.0,  g = 0.82, b = 0.0  }  -- bright gold
 local BORDER_AGGRO   = { r = 1.0,  g = 0.15, b = 0.0  }  -- bright red (threat >= 2)
 
+-- Priority engine constants
+-- HP% at or below this value triggers the CRITICAL_HP (level 4) signal.
+local CRITICAL_HP_THRESHOLD = 20
+
+-- Spell IDs of mechanics requiring player action within ~2 seconds (e.g. soak, dodge,
+-- interrupt on cast).  Populated per patch/season with verified IDs; empty stub for now.
+-- Structure mirrors DEFENSIVE_EXTERNALS: [spellID] = true set.
+local LETHAL_MECHANIC_SPELLS = {
+    -- Example (disabled): [408429] = true,  -- Nymue: Weave
+}
+
 -- G-072: dispel capability table, keyed by classFile string (uppercase).
 -- Values are sets (table with string keys = true) of dispel type names.
 -- Warlock: Magic self-only in retail — no party dispel capability.
@@ -530,6 +541,7 @@ function CHFrames.UpdateAll()
         CHFrames.UpdateRaidMarker(unit)
         CHFrames.UpdateDefensive(unit)
         CHFrames.UpdateAtonement(unit)
+        CHFrames.UpdatePriority(unit)      -- LAST: reads _dispelColor/_lastHpPct set above
     end
 end
 
@@ -560,6 +572,7 @@ end
 function CHFrames.UpdateBorder(unit)
     local f = CHFrames.frames[unit]
     if not f then return end
+    if f._priorityOwnsBorder then return end
 
     local isTarget = UnitIsUnit(unit, "target")
 
@@ -1159,6 +1172,206 @@ function CHFrames.UpdateDefensive(unit)
 end
 
 ------------------------------------------------------------------------
+-- EvaluatePriority
+-- Pure logic: no side effects.  Returns priorityLevel (1–6) and payload table.
+-- Priority levels: 1=DEAD, 2=LETHAL_MECHANIC, 3=DISPELLABLE,
+--                  4=CRITICAL_HP, 5=INCOMING_DAMAGE, 6=NORMAL
+------------------------------------------------------------------------
+
+function CHFrames.EvaluatePriority(unit)
+    if not UNIT_LOOKUP[unit] then return 6, {} end
+    if CHFramesDB and CHFramesDB.testMode and unit ~= "player" then return 6, {} end
+
+    local f = CHFrames.frames[unit]
+    if not f then return 6, {} end
+
+    local level, payload = 6, {}
+    local ok, err = pcall(function()
+
+        -- ── Level 1: DEAD / GHOST / DISCONNECTED / AFK ──────────────────────
+        -- G-058: check ghost before dead (a ghost is also "dead" per UnitIsDead).
+        -- G-076: issecretvalue() guard on every API return — these can return
+        -- tainted booleans in restricted contexts.
+        -- Disconnected/AFK checked here to prevent CRITICAL_HP or DISPELLABLE signals
+        -- firing on a unit whose HP cache is stale or zero.
+        local connected   = UnitIsConnected(unit)
+        local ghost       = UnitIsGhost(unit)
+        local deadOrGhost = UnitIsDeadOrGhost(unit)
+        local afk         = UnitIsAFK(unit)
+
+        local isDead = false
+        if not issecretvalue(connected) and not connected then
+            isDead = true
+        elseif not issecretvalue(ghost) and ghost then
+            isDead = true
+        elseif not issecretvalue(deadOrGhost) and deadOrGhost then
+            isDead = true
+        elseif not issecretvalue(afk) and afk then
+            isDead = true
+        end
+
+        if isDead then
+            level   = 1
+            payload = { color = { r = 0.4, g = 0.4, b = 0.4 } }
+            return
+        end
+
+        -- ── Level 2: LETHAL_MECHANIC ─────────────────────────────────────────
+        -- Scan HARMFUL auras for spell IDs in LETHAL_MECHANIC_SPELLS.
+        -- G-077: guard each aura.spellId with issecretvalue() before table lookup.
+        -- Short-circuit: skip entire scan when table is empty (stub state).
+        if next(LETHAL_MECHANIC_SPELLS) then
+        for i = 1, 40 do
+            local ok2, aura = pcall(C_UnitAuras.GetAuraDataByIndex, unit, i, "HARMFUL")
+            if not ok2 or not aura then break end
+            if aura.spellId and not issecretvalue(aura.spellId) then
+                if LETHAL_MECHANIC_SPELLS[aura.spellId] then
+                    level   = 2
+                    payload = { color = { r = 1.0, g = 0.0, b = 0.0 }, icon = aura.icon }
+                    return
+                end
+            end
+        end
+        end  -- next(LETHAL_MECHANIC_SPELLS)
+
+        -- ── Level 3: DISPELLABLE ─────────────────────────────────────────────
+        -- f._dispelColor is set by UpdateAuras (runs before UpdatePriority in all call sites).
+        if f._dispelColor then
+            level   = 3
+            payload = { color = f._dispelColor }
+            return
+        end
+
+        -- ── Level 4: CRITICAL_HP ─────────────────────────────────────────────
+        -- f._lastHpPct is a plain integer cached by UpdateFrame via pcall(math.floor).
+        if f._lastHpPct and f._lastHpPct <= CRITICAL_HP_THRESHOLD then
+            level   = 4
+            payload = { color = { r = 1.0, g = 0.4, b = 0.0 } }
+            return
+        end
+
+        -- ── Level 5: INCOMING_DAMAGE (heal absorb present) ───────────────────
+        -- UnitGetTotalHealAbsorbs returns plain 0 when inactive, secret number when active.
+        -- G-076: issecretvalue() is the correct presence detector.
+        local absOk, healAbsorb = pcall(UnitGetTotalHealAbsorbs, unit)
+        if absOk and healAbsorb ~= nil then
+            local isSecret = type(issecretvalue) == "function" and issecretvalue(healAbsorb)
+            if isSecret then
+                level   = 5
+                payload = { color = { r = 0.35, g = 0.0, b = 0.0 } }
+                return
+            end
+        end
+
+        -- ── Level 6: NORMAL ──────────────────────────────────────────────────
+        level   = 6
+        payload = {}
+
+    end)
+    if not ok then
+        print("|cffff4444CHFrames|r EvaluatePriority(" .. tostring(unit) .. "): " .. tostring(err))
+        return 6, {}
+    end
+    return level, payload
+end
+
+------------------------------------------------------------------------
+-- ApplyPrioritySignal
+-- Applies the dominant visual state for the given priority level.
+-- Called only from UpdatePriority.
+------------------------------------------------------------------------
+
+function CHFrames.ApplyPrioritySignal(f, priorityLevel, payload)
+    if not f then return end
+    -- Skip all visual work if priority hasn't changed — avoids redundant SetBackdropColor /
+    -- SetVertexColor calls on every UNIT_HEALTH tick when the unit is in a steady state.
+    if f._priorityLevel == priorityLevel then return end
+
+    local ok, err = pcall(function()
+        f._priorityLevel = priorityLevel
+        local barTex = f.healthBar and f.healthBar:GetStatusBarTexture()
+
+        if priorityLevel == 1 then
+            -- DEAD: grey health bar fill.  Overlay already shows "Dead"/"Ghost"/etc.
+            -- SetVertexColor tints the fill texture multiplicatively.
+            if barTex then barTex:SetVertexColor(0.4, 0.4, 0.4) end
+            f:SetBackdropColor(0.05, 0.05, 0.05, 0.85)
+            f._priorityOwnsBorder = false
+            if f.defIcon then f.defIcon:Hide() end
+
+        elseif priorityLevel == 2 then
+            -- LETHAL_MECHANIC: strong red backdrop; show mechanic icon in defIcon slot.
+            if barTex then barTex:SetVertexColor(1, 1, 1) end
+            f:SetBackdropColor(0.5, 0.0, 0.0, 0.9)
+            f._priorityOwnsBorder = false
+            if f.defIcon and payload.icon then
+                f.defIcon.tex:SetTexture(payload.icon)
+                f.defIcon:Show()
+            elseif f.defIcon then
+                f.defIcon:Hide()
+            end
+
+        elseif priorityLevel == 3 then
+            -- DISPELLABLE: colored border glow.  _priorityOwnsBorder suppresses UpdateBorder.
+            if barTex then barTex:SetVertexColor(1, 1, 1) end
+            f:SetBackdropColor(0.05, 0.05, 0.05, 0.85)
+            f._priorityOwnsBorder = true
+            local c = payload.color
+            if c then
+                f:SetBackdropBorderColor(c.r, c.g, c.b, 1)
+            end
+
+        elseif priorityLevel == 4 then
+            -- CRITICAL_HP: orange-red backdrop.
+            if barTex then barTex:SetVertexColor(1, 1, 1) end
+            f:SetBackdropColor(0.5, 0.2, 0.0, 0.85)
+            f._priorityOwnsBorder = false
+
+        elseif priorityLevel == 5 then
+            -- INCOMING_DAMAGE: dark red backdrop; heal absorb active.
+            if barTex then barTex:SetVertexColor(1, 1, 1) end
+            f:SetBackdropColor(0.35, 0.0, 0.0, 0.85)
+            f._priorityOwnsBorder = false
+
+        else
+            -- NORMAL (level 6): restore all overrides.
+            -- SetVertexColor(1,1,1) is a multiplicative identity — lets SetStatusBarColor
+            -- (class color set by UpdateFrame) show through without interference.
+            if barTex then barTex:SetVertexColor(1, 1, 1) end
+            f:SetBackdropColor(0.05, 0.05, 0.05, 0.85)
+            f._priorityOwnsBorder = false
+            -- Restore border: _priorityOwnsBorder is now false, so UpdateBorder will run.
+            CHFrames.UpdateBorder(f.unit)
+            -- Restore defIcon: re-run UpdateDefensive so it reflects current auras.
+            CHFrames.UpdateDefensive(f.unit)
+        end
+    end)
+    if not ok then
+        print("|cffff4444CHFrames|r ApplyPrioritySignal(" .. tostring(f and f.unit) .. ", " .. tostring(priorityLevel) .. "): " .. tostring(err))
+    end
+end
+
+------------------------------------------------------------------------
+-- UpdatePriority
+-- Entry point: evaluates priority then applies the dominant signal.
+------------------------------------------------------------------------
+
+function CHFrames.UpdatePriority(unit)
+    if not UNIT_LOOKUP[unit] then return end
+    if CHFramesDB and CHFramesDB.testMode and unit ~= "player" then return end
+    local f = CHFrames.frames[unit]
+    if not f then return end
+
+    local ok, err = pcall(function()
+        local level, payload = CHFrames.EvaluatePriority(unit)
+        CHFrames.ApplyPrioritySignal(f, level, payload)
+    end)
+    if not ok then
+        print("|cffff4444CHFrames|r UpdatePriority(" .. unit .. "): " .. tostring(err))
+    end
+end
+
+------------------------------------------------------------------------
 -- ApplyTestMode
 ------------------------------------------------------------------------
 
@@ -1337,6 +1550,7 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
         -- G-056: only process tracked units
         if UNIT_LOOKUP[arg1] then
             CHFrames.UpdateFrame(arg1)
+            CHFrames.UpdatePriority(arg1)  -- _lastHpPct updated inside UpdateFrame
         end
 
     elseif event == "UNIT_POWER_UPDATE" then
@@ -1359,6 +1573,7 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
             CHFrames.UpdateMissingBuff(arg1)
             CHFrames.UpdateDefensive(arg1)
             CHFrames.UpdateAtonement(arg1)
+            CHFrames.UpdatePriority(arg1)  -- _dispelColor set by UpdateAuras; lethal aura set changed
         end
 
     elseif event == "PLAYER_TARGET_CHANGED" then
@@ -1371,6 +1586,7 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
         -- Catches AFK, dead, ghost transitions
         if UNIT_LOOKUP[arg1] then
             CHFrames.UpdateFrame(arg1)
+            CHFrames.UpdatePriority(arg1)  -- DEAD signal: AFK/dead/ghost/disconnect transitions
         end
 
     elseif event == "PLAYER_ENTERING_WORLD" then
@@ -1447,11 +1663,13 @@ eventFrame:SetScript("OnEvent", function(self, event, arg1)
         if UNIT_LOOKUP[arg1] then
             CHFrames.UpdateAbsorbs(arg1)
             CHFrames.UpdateFrame(arg1)    -- refresh hpText with updated _hasAbsorb
+            CHFrames.UpdatePriority(arg1)
         end
 
     elseif event == "UNIT_HEAL_ABSORB_AMOUNT_CHANGED" then
         if UNIT_LOOKUP[arg1] then
             CHFrames.UpdateAbsorbs(arg1)
+            CHFrames.UpdatePriority(arg1)  -- heal absorb presence changed (INCOMING_DAMAGE signal)
         end
 
     elseif event == "UNIT_THREAT_SITUATION_UPDATE" then
